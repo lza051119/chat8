@@ -215,10 +215,15 @@ const serverEfficiency = computed(() => {
 
 // 生命周期
 onMounted(async () => {
-  // 检查登录状态
-  if (!hybridStore.isLoggedIn) {
-    router.push('/login');
-    return;
+  // 检查是否是开发模式
+  const isDevMode = window.location.pathname.startsWith('/dev/');
+  
+  if (!isDevMode) {
+    // 只在非开发模式下检查登录状态
+    if (!hybridStore.isLoggedIn) {
+      router.push('/login');
+      return;
+    }
   }
 
   // 初始化混合消息服务

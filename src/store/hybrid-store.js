@@ -21,6 +21,16 @@ const state = reactive({
 
   // 在线状态
   onlineUsers: new Set(),
+
+  // 消息统计
+  messageStats: {
+    totalSent: 0,
+    totalReceived: 0,
+    p2pSent: 0,
+    p2pReceived: 0,
+    serverSent: 0,
+    serverReceived: 0
+  },
 });
 
 export const hybridStore = {
@@ -184,7 +194,16 @@ export const hybridStore = {
         lastMessage: {}
       };
     });
-  }
+  },
+
+  getConnectionStats() {
+    // 返回一个模拟的连接统计对象
+    return {
+      p2pConnections: 1,
+      serverConnections: 1,
+      p2pRatio: 50
+    };
+  },
 };
 
 export default hybridStore; 
