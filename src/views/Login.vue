@@ -6,6 +6,16 @@
         <p class="app-subtitle">混合架构 P2P + 服务器转发</p>
       </div>
 
+      <!-- 开发模式提示 -->
+      <div class="dev-mode-notice">
+        <h3>🔧 开发模式</h3>
+        <p>无需后端，直接访问页面进行开发测试：</p>
+        <div class="dev-links">
+          <a href="/dev/chat" class="dev-link">📱 聊天页面</a>
+          <a href="/dev/settings" class="dev-link">⚙️ 设置页面</a>
+        </div>
+      </div>
+
       <div class="login-form">
         <h2>用户登录</h2>
         
@@ -212,6 +222,54 @@ async function handleLogin() {
   margin: 0;
   color: #666;
   font-size: 1rem;
+}
+
+.dev-mode-notice {
+  grid-column: span 2;
+  padding: 1.5rem 2rem;
+  background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+  border: 1px solid #ffeaa7;
+  border-radius: 0.5rem;
+  margin: 0 2rem 1rem;
+  text-align: center;
+}
+
+.dev-mode-notice h3 {
+  margin: 0 0 0.5rem 0;
+  color: #856404;
+  font-size: 1.1rem;
+}
+
+.dev-mode-notice p {
+  margin: 0 0 1rem 0;
+  color: #856404;
+  font-size: 0.9rem;
+}
+
+.dev-links {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.dev-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: #856404;
+  color: white;
+  text-decoration: none;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.dev-link:hover {
+  background: #6c5ce7;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
 .login-form {

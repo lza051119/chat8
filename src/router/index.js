@@ -25,6 +25,17 @@ const routes = [
     path: '/settings',
     name: 'Settings',
     component: () => import('../views/Settings.vue')
+  },
+  // 开发模式路由 - 直接访问，无需登录
+  {
+    path: '/dev/chat',
+    name: 'DevChat',
+    component: () => import('../views/HybridChatMain.vue')
+  },
+  {
+    path: '/dev/settings',
+    name: 'DevSettings',
+    component: () => import('../views/Settings.vue')
   }
 ];
 
@@ -36,6 +47,12 @@ const router = createRouter({
 // 简化的路由守卫
 router.beforeEach((to, from, next) => {
   try {
+    // 开发模式路由直接放行
+    if (to.path.startsWith('/dev/')) {
+      next();
+      return;
+    }
+
     // 检查本地存储中的token
     const token = localStorage.getItem('token');
     const isLoggedIn = !!token;
