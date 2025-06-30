@@ -113,6 +113,20 @@ const securitySettings = reactive({
 });
 
 onMounted(() => {
+  // 检查是否是开发模式
+  const isDevMode = window.location.pathname.startsWith('/dev/');
+  
+  if (isDevMode) {
+    // 开发模式：加载模拟数据
+    loadMockData();
+  } else {
+    // 只在非开发模式下检查登录状态
+    if (!hybridStore.isLoggedIn) {
+      router.push('/login');
+      return;
+    }
+  }
+  
   loadSettings();
 });
 
@@ -167,8 +181,28 @@ function exportKeys() {
   console.log('导出公钥');
 }
 
+function loadMockData() {
+  // 模拟用户数据
+  const mockUser = {
+    id: 'dev-user-001',
+    username: '开发测试用户',
+    email: 'dev@example.com'
+  };
+  
+  // 设置模拟用户到store
+  hybridStore.setUser(mockUser, 'dev-mock-token');
+  
+  console.log('开发模式：Settings模拟数据加载完成');
+}
+
 function goBack() {
-  router.push('/chat');
+  // 在开发模式下返回到开发聊天页面
+  const isDevMode = window.location.pathname.startsWith('/dev/');
+  if (isDevMode) {
+    router.push('/dev/chat');
+  } else {
+    router.push('/chat');
+  }
 }
 </script>
 
