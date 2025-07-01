@@ -114,22 +114,21 @@ async function sendMessage() {
   sendStatus.value.error = null;
 
   try {
-    const result = await emit('send', { content: messageContent });
+    // 发送消息事件
+    emit('send', { content: messageContent });
     
-    if (result && result.success) {
-      message.value = '';
-      sendStatus.value.lastMethod = result.method;
-      adjustHeight();
-      
-      // 聚焦输入框
-      nextTick(() => {
-        messageInput.value?.focus();
-      });
-    } else {
-      sendStatus.value.error = result?.error || '发送失败';
-    }
+    // 清空输入框
+    message.value = '';
+    sendStatus.value.lastMethod = props.connectionStatus.preferredMethod;
+    adjustHeight();
+    
+    // 聚焦输入框
+    nextTick(() => {
+      messageInput.value?.focus();
+    });
   } catch (error) {
     sendStatus.value.error = error.message || '发送失败';
+    console.error('发送消息失败:', error);
   } finally {
     sendStatus.value.sending = false;
   }
@@ -428,4 +427,4 @@ defineExpose({
     font-size: 0.8rem;
   }
 }
-</style> 
+</style>

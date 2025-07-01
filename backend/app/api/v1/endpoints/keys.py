@@ -2,12 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from db.database import SessionLocal
 from schemas.key import Key, KeyCreate
-from services import key_service, friend_service
+from services import key_service
 from typing import List
 from core.security import get_current_user
 from schemas.user import UserOut
+from pydantic import BaseModel
 
 router = APIRouter()
+
+class FingerprintCheck(BaseModel):
+    user_id: int
+    fingerprint: str
 
 def get_db():
     db = SessionLocal()
@@ -39,8 +44,8 @@ def get_keys(user_ids: str = None, current_user: UserOut = Depends(get_current_u
     return [Key.model_validate(k) for k in db_keys]
 
 @router.post("/keys/verify-fingerprint")
-def verify_fingerprint(user_id: int, fingerprint: str, current_user: UserOut = Depends(get_current_user), db: Session = Depends(get_db)):
-    ok, err = key_service.verify_fingerprint(db, user_id, fingerprint)
+def verify_fingerprint(body: FingerprintCheck, current_user: UserOut = Depends(get_current_user), db: Session = Depends(get_db)):
+    ok, err = key_service.verify_fingerprint(db, body.user_id, body.fingerprint)
     if not ok:
         raise HTTPException(status_code=400, detail=err)
-    return {"success": True, "message": "指纹校验通过"} 
+    return {"success": True, "message": "指纹校验通过"}

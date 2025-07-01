@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from core.security import get_current_user
 from schemas.user import UserOut
 from db.database import SessionLocal
-from db.models import User
+from db.models import User as UserModel
 import os
 
 router = APIRouter()
@@ -26,4 +26,4 @@ def upload_avatar(file: UploadFile = File(...), current_user: UserOut = Depends(
         user.avatar = f"/static/avatars/{filename}"
         db.commit()
     db.close()
-    return {"success": True, "avatarUrl": f"/static/avatars/{filename}"} 
+    return {"success": True, "avatarUrl": f"/static/avatars/{filename}"}

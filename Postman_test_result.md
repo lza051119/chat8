@@ -392,6 +392,7 @@
 - **URL**：`http://localhost:3000/api/keys/public`
 - **Headers**：`Authorization: Bearer {token}`
 
+*response*
 ```json
 [
     {
@@ -402,5 +403,211 @@
         "updatedAt": "2025-07-01T05:54:40.451308"
     }
 ]
+```
+
+## 4.4 校验指纹（功能增强）
+- **方法**：POST  
+- **URL**：`http://localhost:3000/api/keys/verify-fingerprint`
+- **Headers**：`Authorization: Bearer {token}`，`Content-Type: application/json`
+- **Body**（raw, JSON）
+
+```json
+{
+	"user_id": 2,
+	"fingerprint": "SHA256:AA:BB:CC:DD:EE:FF"
+}
+```
+*response*
+```json
+{
+	"success": true,
+	"message": "指纹校验通过"
+}
+```
+
+# 5.WebRTC信令API（signalingAPI）
+
+## 5.1 发送Offer
+
+* **方法**：POST
+* **URL**：`http://localhost:3000/api/signaling/offer?targetUserId={id}`
+* **Headers**：`Authorization: Bearer {token}`，`Content-Type: application/json`
+* **Body**（raw, JSON）
+
+```json
+{
+	"targetUserId": 0,
+	"offer": {
+		"type": "offer",
+		"sdp": "xxxx"
+	}
+}
+```
+*response*
+```json
+{
+    "success": true,
+    "message": "Offer发送成功"
+}
+```
+
+## 5.2 发送Answer
+* **方法**：POST
+* **URL**：`http://localhost:3000/api/signaling/answer`
+* **Headers**：`Authorization: Bearer {token}`，`Content-Type: application/json`
+  
+```json
+{
+	"targetUserId": 0,
+	"offer": {
+		"type": "answer",
+		"sdp": "xxxx"
+	}
+}
+```
+*response*
+```json
+{  
+	"success": true,
+	"message": "Answer发送成功"
+}
+```
+
+## 5.3 发送ICE Candidate
+* **方法**：POST
+* **URL**：`http://localhost:3000/api/signaling/ice-candidate`
+* **Headers**：`Authorization: Bearer {token}`，`Content-Type: application/json`
+  
+```json
+{
+	"targetUserId": 2,
+	"candidate": {
+		"candidate": "xxxx",
+		"sdpMLineIndex": 0,
+		"sdpMid": "audio"
+	}
+}
+```
+ *reponse*
+```json
+{
+	"success": true,
+	"message": "ICE Candidate发送成功"
+}
+```
+
+## 5.4 获取待处理信令
+* **方法**：GET  
+* **URL**：`http://localhost:3000/api/signaling/pending`
+* **Headers**：`Authorization: Bearer {token}`
+
+*reponse*
+  ```json
+{
+"success": true,
+"data": [
+	{
+		"id": "1",
+		"type": "offer",
+		"fromUserId": "2",
+		"fromUsername": "testuser2",
+		"data": {
+			"type": "offer",
+			"sdp": "xxxx"
+		},
+		"timestamp": "2024-01-01T00:00:00.000Z"
+	}
+]
+}
+  ```
+ 
+# 6. 在线状态API（presenceAPI）
+
+## 6.1 设置在线状态
+- **方法**：POST 
+- **URL**：`http://localhost:3000/api/presence/status`
+- **Headers**：`Authorization: Bearer {token}`，`Content-Type: application/json`
+
+```json
+{
+	"status": "online"
+}
+```
+
+*reponse*
+```json
+{
+	"success": true,
+	"message": "状态更新成功"
+}
+```
+
+## 6.2 获取联系人在线状态
+- **方法**：GET  
+- **URL**：`http://localhost:3000/api/presence/contacts`
+- **Headers**：`Authorization: Bearer {token}`
+
+*response*
+```json
+{
+    "success": true,
+    "data": [
+        {
+            "userId": "2",
+            "username": "testuser2",
+            "status": "offline",
+            "lastSeen": "2025-06-30T18:04:16.827136"
+        },
+        {
+            "userId": "3",
+            "username": "testuser3",
+            "status": "offline",
+            "lastSeen": "2025-06-30T18:08:36.872046"
+        }
+    ]
+}
+```
+
+## 6.3 心跳
+- **方法**：POST  
+- **URL**：`http://localhost:3000/api/presence/heartbeat`
+- **Headers**：`Authorization: Bearer {token}`
+
+*reponse*
+```json
+{
+    "success": true,
+    "data": {
+        "nextHeartbeat": 30000
+    }
+}
+```
+
+# 7. WebSocket测试
+
+## 7.1 连接WebSocket
+- **URL**：`ws://localhost:3000/ws?token={token}`
+
+```json
+{
+	"type": "private_message",
+	"to_id": 1,
+	"content": "你好"
+}
+```
+*response*
+```json
+{
+	"type": "message",
+	"data": {
+		"from": 1,
+		"to": 1,
+		"content": "\u4f60\u597d",
+		"timestamp": null,
+		"encrypted": true,
+		"method": "Server",
+		"destroy_after": null
+	}
+}
 ```
 

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import List
 
 def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted: bool = True, method: str = 'Server', destroy_after: int = None):
+    # 保存消息到数据库
     msg = models.Message(
         from_id=from_id,
         to_id=to_id,
@@ -16,7 +17,10 @@ def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted:
     db.add(msg)
     db.commit()
     db.refresh(msg)
+    
     return msg
+
+
 
 def get_message_history(db: Session, user_id: int, peer_id: int, page: int = 1, limit: int = 50):
     now = datetime.utcnow()
@@ -61,4 +65,4 @@ def delete_message(db: Session, user_id: int, message_id: int):
         return False, "无权限删除该消息"
     db.delete(msg)
     db.commit()
-    return True, None 
+    return True, None

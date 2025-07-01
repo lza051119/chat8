@@ -29,6 +29,7 @@ class Friend(Base):
     friend_id = Column(Integer, ForeignKey('users.id'))
     created_at = Column(DateTime, default=datetime.utcnow)
     user = relationship('User', foreign_keys=[user_id], back_populates='friends')
+    friend_user = relationship('User', foreign_keys=[friend_id])
 
 class Message(Base):
     __tablename__ = 'messages'
@@ -59,10 +60,24 @@ class SignalingMessage(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     is_handled = Column(Boolean, default=False)
 
+class FriendRequest(Base):
+    __tablename__ = 'friend_requests'
+    id = Column(Integer, primary_key=True, index=True)
+    from_user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    to_user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    status = Column(String(16), default='pending')  # pending, accepted, rejected
+    message = Column(Text, nullable=True)  # 申请消息
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    
+    # 关系
+    from_user = relationship('User', foreign_keys=[from_user_id])
+    to_user = relationship('User', foreign_keys=[to_user_id])
+
 class SecurityEvent(Base):
     __tablename__ = 'security_events'
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey('users.id'))
     event_type = Column(String(64), nullable=False)
     detail = Column(Text, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow) 
+    timestamp = Column(DateTime, default=datetime.utcnow)

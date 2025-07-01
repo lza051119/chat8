@@ -1,7 +1,7 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from api.v1.endpoints import friends, messages, keys, auth, presence, signaling, avatar, security
 from websocket.events import websocket_endpoint
-from fastapi import Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
@@ -12,6 +12,22 @@ from core.security import decode_access_token
 
 app = FastAPI()
 
+# 配置CORS
+origins = [
+    "http://localhost:8080",  # 允许的前端源
+    "http://127.0.0.1:8080",
+    "http://localhost:8081",  # 新的前端端口
+    "http://127.0.0.1:8081",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # 注册API路由
 app.include_router(auth.router, prefix="/api")
 app.include_router(friends.router, prefix="/api")
@@ -20,16 +36,17 @@ app.include_router(keys.router, prefix="/api")
 app.include_router(signaling.router, prefix="/api")
 app.include_router(avatar.router, prefix="/api")
 app.include_router(security.router, prefix="/api")
+app.include_router(presence.router, prefix="/api")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-@app.get("/ping")
+@app.get("/api/ping")
 def ping():
     return {"msg": "pong"}
 
-@app.websocket("/ws")
-async def websocket_route(websocket: WebSocket):
-    # 从query参数获取token
+@app.websocket("/ws/{user_id}")
+async def websocket_route(websocket: WebSocket, user_id: int):
+    # 从query参数获取token进行验证
     token = websocket.query_params.get("token")
     if not token:
         await websocket.close(code=1008)
@@ -39,16 +56,15 @@ async def websocket_route(websocket: WebSocket):
     except Exception:
         await websocket.close(code=1008)
         return
-    # 查询user_id
+    # 验证用户ID是否匹配
     from db.database import SessionLocal
     from db.models import User
     db = SessionLocal()
-    user = db.query(User).filter(User.username == username).first()
+    user = db.query(User).filter(User.username == username, User.id == user_id).first()
     db.close()
     if not user:
         await websocket.close(code=1008)
         return
-    user_id = user.id
     await websocket_endpoint(websocket, user_id)
 
 ERROR_CODE_MAP = {
@@ -91,4 +107,4 @@ async def global_exception_handler(request: Request, exc: Exception):
             "message": "服务器内部错误",
             "error": "INTERNAL_SERVER_ERROR"
         }
-    ) 
+    )

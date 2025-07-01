@@ -33,4 +33,4 @@ def get_pending_signaling(user_id: int):
         m.is_handled = True
     db.commit()
     db.close()
-    return result 
+    return result

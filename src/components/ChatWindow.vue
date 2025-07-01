@@ -35,13 +35,15 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { store } from '../store';
 import MessageInput from './MessageInput.vue';
+import { getMessageHistory } from '../api';
 
 const props = defineProps({ contact: Object });
 const messages = ref([]);
 const messagesContainer = ref(null);
+const ws = ref(null);
 
 watch(() => props.contact, (newContact) => {
   if (newContact) {
@@ -50,31 +52,48 @@ watch(() => props.contact, (newContact) => {
   }
 });
 
-function loadMessages(contactId) {
-  // 临时模拟消息数据
-  messages.value = [
-    {
-      id: 1,
-      from: contactId,
-      content: '你好！这是一条加密消息。',
-      time: new Date(Date.now() - 300000),
-      encrypted: true
-    },
-    {
-      id: 2,
-      from: store.user?.id,
-      content: '收到！我们的对话是安全的。',
-      time: new Date(Date.now() - 120000),
-      encrypted: true
-    }
-  ];
-  
-  nextTick(() => {
-    scrollToBottom();
-  });
+async function loadMessages(contactId) {
+  try {
+    const response = await getMessageHistory(store.token, contactId);
+    const messageData = response.data;
+    
+    // 转换消息格式
+    messages.value = messageData.messages.map(msg => ({
+      id: msg.id,
+      from: msg.from_id,
+      content: msg.content,
+      time: new Date(msg.timestamp),
+      encrypted: msg.encrypted
+    })).reverse(); // 反转顺序，最新消息在底部
+    
+    nextTick(() => {
+      scrollToBottom();
+    });
+  } catch (error) {
+    console.error('加载消息历史失败:', error);
+    messages.value = [];
+  }
 }
 
 function sendMessage(messageData) {
+  if (!ws.value || ws.value.readyState !== WebSocket.OPEN) {
+    console.error('WebSocket连接未建立');
+    return;
+  }
+  
+  // 通过WebSocket发送消息
+  const message = {
+    type: 'private_message',
+    to_id: props.contact.id,
+    content: messageData.content,
+    encrypted: true,
+    method: 'Server',
+    destroy_after: messageData.burnAfter
+  };
+  
+  ws.value.send(JSON.stringify(message));
+  
+  // 添加到本地消息列表
   const newMessage = {
     id: Date.now(),
     from: store.user?.id,
@@ -85,11 +104,6 @@ function sendMessage(messageData) {
   };
   
   messages.value.push(newMessage);
-  
-  // 这里应该通过WebSocket发送消息到后端
-  // 1. 本地加密（端到端加密，前端实现）
-  // 2. 通过WebSocket发送消息（需要后端WebSocket服务）
-  // 3. 消息格式：{ to: props.contact.id, content, encrypted: true, burnAfter: 秒 }
   
   nextTick(() => {
     scrollToBottom();
@@ -116,6 +130,75 @@ function toggleSecurity() {
 function startCall() {
   alert('语音通话功能（待实现）');
 }
+
+// WebSocket连接管理
+function connectWebSocket() {
+  if (!store.user || !store.token) return;
+  
+  const wsUrl = `ws://localhost:8000/ws/${store.user.id}?token=${store.token}`;
+  ws.value = new WebSocket(wsUrl);
+  
+  ws.value.onopen = () => {
+    console.log('WebSocket连接已建立');
+  };
+  
+  ws.value.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      handleWebSocketMessage(data);
+    } catch (error) {
+      console.error('解析WebSocket消息失败:', error);
+    }
+  };
+  
+  ws.value.onclose = () => {
+    console.log('WebSocket连接已关闭');
+    // 尝试重连
+    setTimeout(() => {
+      if (store.user) {
+        connectWebSocket();
+      }
+    }, 3000);
+  };
+  
+  ws.value.onerror = (error) => {
+    console.error('WebSocket错误:', error);
+  };
+}
+
+function handleWebSocketMessage(data) {
+  if (data.type === 'message') {
+    const messageData = data.data;
+    
+    // 只处理当前聊天对象的消息
+    if (props.contact && (messageData.from === props.contact.id || messageData.to === props.contact.id)) {
+      const newMessage = {
+        id: messageData.id,
+        from: messageData.from,
+        content: messageData.content,
+        time: new Date(messageData.timestamp),
+        encrypted: messageData.encrypted
+      };
+      
+      messages.value.push(newMessage);
+      
+      nextTick(() => {
+        scrollToBottom();
+      });
+    }
+  }
+}
+
+// 组件生命周期
+onMounted(() => {
+  connectWebSocket();
+});
+
+onUnmounted(() => {
+  if (ws.value) {
+    ws.value.close();
+  }
+});
 </script>
 
 <style scoped>

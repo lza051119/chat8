@@ -66,7 +66,8 @@
     <div v-if="contact" class="message-input-area">
       <HybridMessageInput
         :contact="contact"
-        @message-sent="handleMessageSent"
+        :connectionStatus="getConnectionStatus()"
+        @send="handleMessageSent"
       />
     </div>
   </div>
@@ -89,6 +90,27 @@ const messages = computed(() => {
   if (!contact.value) return [];
   return hybridStore.getMessages(contact.value.id);
 });
+
+function getConnectionStatus() {
+  if (!contact.value) {
+    return {
+      preferredMethod: 'Server',
+      p2pStatus: 'disconnected',
+      isOnline: false,
+      supportsP2P: false
+    };
+  }
+  
+  const p2pStatus = hybridStore.getP2PStatus(contact.value.id);
+  const isOnline = hybridStore.isUserOnline(contact.value.id);
+  
+  return {
+    preferredMethod: p2pStatus === 'connected' ? 'P2P' : 'Server',
+    p2pStatus: p2pStatus,
+    isOnline: isOnline,
+    supportsP2P: isOnline
+  };
+}
 
 // 监听联系人变化，滚动到底部
 watch(contact, async () => {
@@ -142,10 +164,79 @@ function scrollToBottom() {
   }
 }
 
-function handleMessageSent(message) {
-  // 消息已经通过HybridMessaging服务添加到store中
-  // 这里只需要滚动到底部
-  scrollToBottom();
+async function handleMessageSent(messageData) {
+  try {
+    console.log('开始发送消息:', messageData);
+    
+    // 使用HybridMessaging服务发送消息
+    const hybridMessaging = hybridStore.getHybridMessaging();
+    if (!hybridMessaging) {
+      throw new Error('消息服务未初始化');
+    }
+    
+    // 先创建本地消息对象（立即显示）
+    const tempMessage = {
+      id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      from: currentUser.value.id,
+      to: contact.value.id,
+      content: messageData.content,
+      timestamp: new Date().toISOString(),
+      method: 'Server', // 默认方法，发送后会更新
+      encrypted: false,
+      sending: true // 标记为发送中
+    };
+    
+    // 立即添加到本地显示
+    hybridStore.addMessage(contact.value.id, tempMessage);
+    console.log('已添加临时消息到store:', tempMessage);
+    
+    // 滚动到底部
+    await nextTick();
+    scrollToBottom();
+    
+    // 发送消息到服务器
+    const result = await hybridMessaging.sendMessage(contact.value.id, messageData.content);
+    console.log('消息发送结果:', result);
+    
+    if (result.success) {
+      // 更新消息状态
+      const finalMessage = {
+        ...tempMessage,
+        id: result.id || tempMessage.id,
+        method: result.method || 'Server',
+        timestamp: result.timestamp || tempMessage.timestamp,
+        sending: false
+      };
+      
+      // 更新store中的消息
+      const messages = hybridStore.getMessages(contact.value.id);
+      const messageIndex = messages.findIndex(m => m.id === tempMessage.id);
+      if (messageIndex !== -1) {
+        messages[messageIndex] = finalMessage;
+      }
+      
+      console.log('消息发送成功，已更新状态');
+      return { success: true, method: finalMessage.method };
+    } else {
+      // 发送失败，移除临时消息
+      const messages = hybridStore.getMessages(contact.value.id);
+      const messageIndex = messages.findIndex(m => m.id === tempMessage.id);
+      if (messageIndex !== -1) {
+        messages.splice(messageIndex, 1);
+      }
+      console.error('发送消息失败:', result.error || '发送失败');
+      return { success: false, error: result.error || '发送失败' };
+    }
+  } catch (error) {
+    console.error('发送消息失败:', error);
+    // 发送失败，移除临时消息
+    const messages = hybridStore.getMessages(contact.value.id);
+    const messageIndex = messages.findIndex(m => m.id === tempMessage.id);
+    if (messageIndex !== -1) {
+      messages.splice(messageIndex, 1);
+    }
+    return { success: false, error: error.message };
+  }
 }
 
 function startVoiceCall() {

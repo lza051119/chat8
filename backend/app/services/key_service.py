@@ -25,4 +25,4 @@ def verify_fingerprint(db: Session, user_id: int, fingerprint: str):
     key = db.query(models.Key).filter_by(user_id=user_id).first()
     if not key:
         return False, "公钥不存在"
-    return key.fingerprint == fingerprint, None if key.fingerprint == fingerprint else "指纹不匹配" 
+    return key.fingerprint == fingerprint, None if key.fingerprint == fingerprint else "指纹不匹配"

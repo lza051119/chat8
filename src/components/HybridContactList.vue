@@ -1,7 +1,10 @@
 <template>
   <div class="hybrid-contact-list">
     <div class="list-header">
-      <h3>联系人</h3>
+      <div class="header-left">
+        <h3>联系人</h3>
+        <button @click="showAddModal" class="add-contact-btn" title="添加联系人">+</button>
+      </div>
       <div class="connection-stats">
         <span class="stat">
           <span class="stat-icon p2p">🔗</span>
@@ -32,7 +35,7 @@
         @click="selectContact(contact)"
       >
         <div class="contact-avatar">
-          {{ contact.username[0].toUpperCase() }}
+          {{ contact.username && contact.username.length > 0 ? contact.username[0].toUpperCase() : '?' }}
           <div :class="['online-indicator', { 'online': contact.online }]"></div>
         </div>
 
@@ -94,6 +97,16 @@
             <span class="progress-text">建立P2P连接中...</span>
           </div>
         </div>
+        
+        <div class="contact-actions">
+          <button 
+            class="delete-btn" 
+            @click.stop="deleteContact(contact.id)"
+            title="删除联系人"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       <!-- 空状态 -->
@@ -126,17 +139,26 @@
       </div>
     </div>
   </div>
+  
+  <!-- 添加联系人模态框 -->
+  <AddContactModal 
+    :isVisible="showAddContactModal" 
+    @close="hideAddModal" 
+    @contact-added="onContactAdded"
+  />
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
-import { hybridStore } from '../store/hybrid-store';
-import { contactAPI } from '../api/hybrid-api';
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { hybridStore } from '../store/hybrid-store.js'
+import { hybridApi } from '../api/hybrid-api.js'
+import AddContactModal from './AddContactModal.vue'
 
 const emit = defineEmits(['contact-selected']);
 
 const searchQuery = ref('');
 const showStats = ref(false);
+const showAddContactModal = ref(false);
 
 // 计算属性
 const contacts = computed(() => hybridStore.contacts);
@@ -148,8 +170,8 @@ const filteredContacts = computed(() => {
   
   const query = searchQuery.value.toLowerCase();
   return contacts.value.filter(contact =>
-    contact.username.toLowerCase().includes(query) ||
-    contact.email.toLowerCase().includes(query)
+    (contact.username && contact.username.toLowerCase().includes(query)) ||
+    (contact.email && contact.email.toLowerCase().includes(query))
   );
 });
 
@@ -165,16 +187,56 @@ onMounted(async () => {
 // 方法
 async function loadContacts() {
   try {
-    const response = await contactAPI.getContacts();
-    hybridStore.setContacts(response.data);
+    const response = await hybridApi.getContacts();
+    // 后端返回格式: {success: true, data: {items: [...], ...}}
+    const contactsData = response.data.data.items || [];
+    hybridStore.setContacts(contactsData);
   } catch (error) {
     console.error('加载联系人失败:', error);
   }
 }
 
-function selectContact(contact) {
+async function selectContact(contact) {
   hybridStore.setCurrentContact(contact);
+  
+  // 加载该联系人的消息历史
+  try {
+    const response = await hybridApi.getMessageHistory(contact.id);
+    if (response.data && response.data.success) {
+      const messages = response.data.data.items || [];
+      // 将消息添加到store中
+      hybridStore.setMessages(contact.id, messages);
+    }
+  } catch (error) {
+    console.error('加载消息历史失败:', error);
+  }
+  
   emit('contact-selected', contact);
+}
+
+function showAddModal() {
+  showAddContactModal.value = true;
+}
+
+function hideAddModal() {
+  showAddContactModal.value = false;
+}
+
+function onContactAdded() {
+  hideAddModal();
+  loadContacts();
+}
+
+async function deleteContact(contactId) {
+  if (confirm('确定要删除这个联系人吗？')) {
+    try {
+      await hybridApi.removeContact(contactId);
+      hybridStore.removeContact(contactId);
+    } catch (error) {
+      console.error('删除联系人失败:', error);
+      alert('删除联系人失败，请重试');
+    }
+  }
 }
 
 function formatLastMessage(message) {
@@ -229,10 +291,35 @@ defineExpose({
   background: #f8f9fa;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 .list-header h3 {
   margin: 0;
   font-size: 1.2rem;
   color: #333;
+}
+
+.add-contact-btn {
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.add-contact-btn:hover {
+  background: #0056b3;
 }
 
 .connection-stats {
@@ -287,6 +374,7 @@ defineExpose({
   border-bottom: 1px solid #f0f0f0;
   cursor: pointer;
   transition: background-color 0.2s;
+  position: relative;
 }
 
 .contact-item:hover {
@@ -296,6 +384,39 @@ defineExpose({
 .contact-item.active {
   background: #e3f2fd;
   border-left: 3px solid #007bff;
+}
+
+.contact-item:hover .contact-actions {
+  opacity: 1;
+}
+
+.contact-actions {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.delete-btn {
+  background: #ff4757;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.delete-btn:hover {
+  background: #ff3742;
 }
 
 .contact-avatar {
@@ -539,4 +660,4 @@ defineExpose({
     gap: 0.5rem;
   }
 }
-</style> 
+</style>

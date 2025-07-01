@@ -25,6 +25,10 @@
           <span class="username">{{ user?.username }}</span>
           <div class="status-indicator online"></div>
         </div>
+        <button @click="showFriendRequestModal = true" class="friend-request-btn" :class="{ 'has-requests': pendingRequestsCount > 0 }">
+          📬
+          <span v-if="pendingRequestsCount > 0" class="request-badge">{{ pendingRequestsCount }}</span>
+        </button>
         <button @click="showStatsModal = true" class="stats-btn">📊</button>
         <button @click="logout" class="logout-btn">退出</button>
       </div>
@@ -165,6 +169,13 @@
       </div>
     </div>
 
+    <!-- 好友申请模态框 -->
+    <FriendRequestModal 
+      :isVisible="showFriendRequestModal"
+      @close="showFriendRequestModal = false"
+      @request-handled="handleFriendRequestHandled"
+    />
+
     <!-- 连接状态悬浮通知 -->
     <div v-if="connectionNotification" class="connection-notification">
       <div :class="['notification', connectionNotification.type]">
@@ -176,21 +187,25 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { hybridStore } from '../store/hybrid-store';
 import HybridContactList from '../components/HybridContactList.vue';
 import HybridChatWindow from '../components/HybridChatWindow.vue';
+import FriendRequestModal from '../components/FriendRequestModal.vue';
 import HybridMessaging from '../services/HybridMessaging';
+import { hybridApi } from '../api/hybrid-api.js';
 
 const router = useRouter();
 
 const selectedContact = ref(null);
 const showStatsModal = ref(false);
+const showFriendRequestModal = ref(false);
 const showMethodSwitchHint = ref(false);
 const connectionNotification = ref(null);
 const contactList = ref(null);
 const messaging = ref(null);
+const pendingRequestsCount = ref(0);
 
 // 计算属性
 const user = computed(() => hybridStore.user);
@@ -199,7 +214,7 @@ const messageStats = computed(() => hybridStore.messageStats);
 
 const totalOnlineContacts = computed(() => {
   return hybridStore.contacts.filter(contact => 
-    hybridStore.onlineUsers.get(contact.id)?.online
+    hybridStore.onlineUsers.has(contact.id)
   ).length;
 });
 
@@ -215,42 +230,105 @@ const serverEfficiency = computed(() => {
 
 // 生命周期
 onMounted(async () => {
+  // 首先从本地存储加载用户信息
+  hybridStore.loadUserFromStorage();
+  
+  // 等待下一个 tick 确保响应式状态已更新
+  await nextTick();
+  
   // 检查是否是开发模式
   const isDevMode = window.location.pathname.startsWith('/dev/');
   
   if (!isDevMode) {
     // 只在非开发模式下检查登录状态
     if (!hybridStore.isLoggedIn) {
+      console.warn('用户未登录，跳转到登录页面');
       router.push('/login');
       return;
     }
   }
 
-  // 初始化混合消息服务
-  await initializeMessaging();
+  // 使用重试机制确保用户信息加载
+  const maxRetries = 3;
+  let retryCount = 0;
+  
+  while (retryCount < maxRetries) {
+    if (hybridStore.user && hybridStore.user.id) {
+      console.log('用户信息加载成功，开始初始化消息系统');
+      await initializeMessaging();
+      break;
+    }
+    
+    retryCount++;
+    console.warn(`用户信息未加载，重试 ${retryCount}/${maxRetries}`);
+    
+    if (retryCount < maxRetries) {
+      // 等待一段时间后重试
+      await new Promise(resolve => setTimeout(resolve, 200));
+      // 重新加载用户信息
+      hybridStore.loadUserFromStorage();
+      await nextTick();
+    } else {
+      // 最后一次重试失败，跳转到登录页面
+      console.error('用户信息加载失败，跳转到登录页面');
+      router.push('/login');
+      return;
+    }
+  }
   
   // 设置连接状态监听
   setupConnectionNotifications();
+  
+  // 加载好友申请数量
+  loadPendingRequestsCount();
 });
 
 onUnmounted(() => {
-  if (messaging.value) {
-    messaging.value.cleanup();
+  try {
+    if (messaging.value && typeof messaging.value.cleanup === 'function') {
+      messaging.value.cleanup();
+    }
+    
+    // 清理所有引用
+    messaging.value = null;
+    selectedContact.value = null;
+    connectionNotification.value = null;
+    
+    // 清理定时器
+    if (window.hybridChatTimers) {
+      window.hybridChatTimers.forEach(timer => clearTimeout(timer));
+      window.hybridChatTimers = [];
+    }
+  } catch (error) {
+    console.error('组件卸载时出错:', error);
   }
 });
 
 // 方法
 async function initializeMessaging() {
   try {
-    messaging.value = new HybridMessaging();
+    // 使用hybrid-store的初始化方法
+    const success = await hybridStore.initializeHybridMessaging();
     
-    // 设置回调
-    messaging.value.onUserStatusChanged = handleUserStatusChange;
-    
-    // 初始化
-    await messaging.value.initialize(hybridStore.user.id, hybridStore.token);
-    
-    console.log('混合消息系统初始化完成');
+    if (success) {
+      messaging.value = hybridStore.getHybridMessaging();
+      
+      // 设置用户在线状态
+      await hybridApi.setOnlineStatus('online');
+      
+      // 开始定期更新在线状态
+      startStatusHeartbeat();
+      
+      // 加载联系人在线状态
+      await updateContactsOnlineStatus();
+      
+      // 加载所有联系人的消息历史
+      await loadAllMessageHistory();
+      
+      console.log('混合消息系统初始化完成');
+    } else {
+      throw new Error('HybridMessaging初始化失败');
+    }
   } catch (error) {
     console.error('初始化消息系统失败:', error);
     showNotification('初始化失败', 'error', '❌');
@@ -264,21 +342,85 @@ function setupConnectionNotifications() {
 
 function handleContactSelected(contact) {
   selectedContact.value = contact;
-  hybridStore.setCurrentChat(contact);
+  hybridStore.setCurrentContact(contact);
 }
 
 function handleUserStatusChange(userId, status) {
-  hybridStore.updateUserStatus(userId, status);
+  hybridStore.updateOnlineStatus(userId, status === 'online');
   
   // 显示状态变化通知
   const contact = hybridStore.contacts.find(c => c.id === userId);
   if (contact) {
-    const statusText = status.online ? '上线' : '离线';
+    const statusText = status === 'online' ? '上线' : '离线';
     showNotification(
       `${contact.username} ${statusText}`,
-      status.online ? 'success' : 'info',
-      status.online ? '🟢' : '🔴'
+      status === 'online' ? 'success' : 'info',
+      status === 'online' ? '🟢' : '🔴'
     );
+  }
+}
+
+// 开始状态心跳
+function startStatusHeartbeat() {
+  // 每30秒发送一次心跳
+  const heartbeatInterval = setInterval(async () => {
+    try {
+      await hybridApi.heartbeat();
+      // 同时更新联系人在线状态
+      await updateContactsOnlineStatus();
+    } catch (error) {
+      console.error('心跳失败:', error);
+    }
+  }, 30000);
+  
+  // 保存定时器引用以便清理
+  if (!window.hybridChatTimers) {
+    window.hybridChatTimers = [];
+  }
+  window.hybridChatTimers.push(heartbeatInterval);
+}
+
+// 更新联系人在线状态
+async function updateContactsOnlineStatus() {
+  try {
+    const response = await hybridApi.getContactsStatus();
+    if (response.data && response.data.success) {
+      const statusList = response.data.data || [];
+      
+      statusList.forEach(statusInfo => {
+        const isOnline = statusInfo.status === 'online';
+        hybridStore.updateOnlineStatus(parseInt(statusInfo.userId), isOnline);
+      });
+    }
+  } catch (error) {
+    console.error('更新联系人在线状态失败:', error);
+  }
+}
+
+// 加载所有联系人的消息历史
+async function loadAllMessageHistory() {
+  try {
+    const contacts = hybridStore.contacts;
+    console.log('开始加载所有联系人的消息历史，联系人数量:', contacts.length);
+    
+    // 并发加载所有联系人的消息历史
+    const loadPromises = contacts.map(async (contact) => {
+      try {
+        const response = await hybridApi.getMessageHistory(contact.id);
+        if (response.data && response.data.success) {
+          const messages = response.data.data.items || [];
+          hybridStore.setMessages(contact.id, messages);
+          console.log(`已加载联系人 ${contact.username} 的消息历史，共 ${messages.length} 条`);
+        }
+      } catch (error) {
+        console.error(`加载联系人 ${contact.username} 的消息历史失败:`, error);
+      }
+    });
+    
+    await Promise.all(loadPromises);
+    console.log('所有联系人的消息历史加载完成');
+  } catch (error) {
+    console.error('加载消息历史失败:', error);
   }
 }
 
@@ -289,25 +431,125 @@ function showNotification(message, type, icon) {
     icon
   };
   
-  setTimeout(() => {
-    connectionNotification.value = null;
+  // 管理定时器，避免内存泄漏
+  if (!window.hybridChatTimers) {
+    window.hybridChatTimers = [];
+  }
+  
+  const timer = setTimeout(() => {
+    if (connectionNotification.value) {
+      connectionNotification.value = null;
+    }
   }, 3000);
+  
+  window.hybridChatTimers.push(timer);
+}
+
+async function loadPendingRequestsCount() {
+  try {
+    const response = await hybridApi.getFriendRequests('received');
+    if (response.data && response.data.success) {
+      const requests = response.data.data || [];
+      pendingRequestsCount.value = requests.filter(req => req.status === 'pending').length;
+    }
+  } catch (error) {
+    console.error('加载好友申请数量失败:', error);
+  }
+}
+
+async function handleFriendRequestHandled(data) {
+  // 更新好友申请数量
+  loadPendingRequestsCount();
+  
+  // 如果同意了申请，刷新联系人列表
+  if (data.action === 'accept') {
+    if (contactList.value && contactList.value.refresh) {
+      contactList.value.refresh();
+    } else {
+      // 直接重新加载联系人数据
+      try {
+        const response = await hybridApi.getContacts();
+        const contactsData = response.data.data.items || [];
+        hybridStore.setContacts(contactsData);
+      } catch (error) {
+        console.error('刷新联系人列表失败:', error);
+      }
+    }
+  }
+  
+  // 显示通知
+  const message = data.action === 'accept' ? 
+    `已同意 ${data.request.from_user_username} 的好友申请` : 
+    `已拒绝 ${data.request.from_user_username} 的好友申请`;
+  showNotification(message, 'success', '✅');
 }
 
 async function logout() {
   try {
-    // 清理连接
-    if (messaging.value) {
-      messaging.value.cleanup();
+    console.log('开始退出登录...');
+    
+    // 1. 设置用户离线状态
+    try {
+      await hybridApi.setOnlineStatus('offline');
+    } catch (statusError) {
+      console.warn('设置离线状态失败:', statusError);
     }
     
-    // 清空状态
-    hybridStore.clear();
+    // 2. 清理HybridMessaging服务
+    hybridStore.cleanupHybridMessaging();
     
-    // 跳转到登录页
-    router.push('/login');
+    // 3. 清理消息系统连接
+    if (messaging.value && typeof messaging.value.cleanup === 'function') {
+      await messaging.value.cleanup();
+      messaging.value = null;
+    }
+    
+    // 4. 清理组件状态
+    selectedContact.value = null;
+    connectionNotification.value = null;
+    showStatsModal.value = false;
+    showFriendRequestModal.value = false;
+    
+    // 5. 清理定时器
+    if (window.hybridChatTimers) {
+      window.hybridChatTimers.forEach(timer => {
+        if (typeof timer === 'number') {
+          clearInterval(timer);
+          clearTimeout(timer);
+        }
+      });
+      window.hybridChatTimers = [];
+    }
+    
+    // 6. 调用后端退出API（如果需要）
+    try {
+      await hybridApi.logout();
+    } catch (apiError) {
+      console.warn('后端退出API调用失败:', apiError);
+    }
+    
+    // 7. 清空store状态
+    hybridStore.logout();
+    
+    console.log('退出登录完成，跳转到登录页');
+    
+    // 8. 强制跳转到登录页
+    await router.replace('/login');
+    
+    // 9. 刷新页面确保完全清理
+    setTimeout(() => {
+      window.location.reload();
+    }, 100);
+    
   } catch (error) {
     console.error('退出登录失败:', error);
+    // 即使出错也要清理状态并跳转
+    hybridStore.cleanupHybridMessaging();
+    hybridStore.logout();
+    router.replace('/login');
+    setTimeout(() => {
+      window.location.reload();
+    }, 100);
   }
 }
 </script>
@@ -410,17 +652,45 @@ async function logout() {
   background: #28a745;
 }
 
-.stats-btn, .logout-btn {
+.friend-request-btn, .stats-btn, .logout-btn {
   padding: 0.5rem 1rem;
   border: 1px solid #ddd;
   background: white;
   border-radius: 0.25rem;
   cursor: pointer;
   transition: all 0.2s;
+  position: relative;
 }
 
-.stats-btn:hover, .logout-btn:hover {
+.friend-request-btn:hover, .stats-btn:hover, .logout-btn:hover {
   background: #f8f9fa;
+}
+
+.friend-request-btn.has-requests {
+  background: #fff3cd;
+  border-color: #ffeaa7;
+  color: #856404;
+}
+
+.friend-request-btn.has-requests:hover {
+  background: #ffeaa7;
+}
+
+.request-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #dc3545;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  border: 2px solid white;
 }
 
 .logout-btn {
@@ -793,4 +1063,4 @@ async function logout() {
     width: 100%;
   }
 }
-</style> 
+</style>

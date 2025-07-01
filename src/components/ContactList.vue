@@ -2,7 +2,7 @@
   <div class="contact-list">
     <div class="header">
       <h3>联系人</h3>
-      <button @click="addFriend" class="add-btn">+</button>
+      <button @click="showAddModal" class="add-btn">+</button>
     </div>
     
     <div class="contacts">
@@ -20,38 +20,71 @@
             {{ contact.online ? '在线' : '离线' }}
           </div>
         </div>
+        <div class="contact-actions">
+          <button @click.stop="deleteContact(contact)" class="delete-btn" title="删除联系人">
+            ×
+          </button>
+        </div>
       </div>
     </div>
+    
+    <!-- 添加联系人模态框 -->
+    <AddContactModal 
+      :isVisible="showModal" 
+      @close="hideAddModal"
+      @contact-added="onContactAdded"
+    />
   </div>
 </template>
 
 <script setup>
-import { store } from '../store';
-import { addContact } from '../api';
+import { ref } from 'vue'
+import { store } from '../store'
+import { hybridStore } from '../store/hybrid-store.js'
+import { hybridApi } from '../api/hybrid-api.js'
+import AddContactModal from './AddContactModal.vue'
 
-const emit = defineEmits(['select']);
+const emit = defineEmits(['select'])
+const showModal = ref(false)
 
 function selectContact(contact) {
-  store.currentChat = contact;
-  emit('select', contact);
+  store.currentChat = contact
+  emit('select', contact)
 }
 
-async function addFriend() {
-  const friendId = prompt('输入好友用户名：');
-  if (friendId) {
-    try {
-      // await addContact(store.token, friendId);
-      // 临时模拟添加好友
-      const newContact = { 
-        id: Date.now(), 
-        username: friendId, 
-        online: Math.random() > 0.5 
-      };
-      store.contacts.push(newContact);
-      alert(`已添加好友：${friendId}`);
-    } catch (error) {
-      alert('添加好友失败（需要后端支持）');
+function showAddModal() {
+  showModal.value = true
+}
+
+function hideAddModal() {
+  showModal.value = false
+}
+
+function onContactAdded(contact) {
+  console.log('联系人添加成功:', contact)
+  // 模态框会自动关闭，这里可以添加额外的处理逻辑
+}
+
+async function deleteContact(contact) {
+  if (!confirm(`确定要删除联系人 "${contact.username}" 吗？`)) {
+    return
+  }
+  
+  try {
+    await hybridApi.removeContact(contact.id)
+    
+    // 从本地存储中移除
+    hybridStore.removeContact(contact.id)
+    
+    // 如果当前正在与该联系人聊天，清除当前聊天
+    if (store.currentChat?.id === contact.id) {
+      store.currentChat = null
     }
+    
+    console.log('联系人删除成功:', contact.username)
+  } catch (error) {
+    console.error('删除联系人失败:', error)
+    alert('删除联系人失败，请重试')
   }
 }
 </script>
@@ -94,10 +127,15 @@ async function addFriend() {
   cursor: pointer;
   border-bottom: 1px solid #eee;
   transition: background 0.2s;
+  position: relative;
 }
 
 .contact-item:hover {
   background: #f0f0f0;
+}
+
+.contact-item:hover .contact-actions {
+  opacity: 1;
 }
 
 .contact-item.active {
@@ -140,4 +178,29 @@ async function addFriend() {
 .status-dot.online {
   background: #28a745;
 }
-</style> 
+
+.contact-actions {
+  opacity: 0;
+  transition: opacity 0.2s;
+  margin-left: auto;
+}
+
+.delete-btn {
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.delete-btn:hover {
+  background: #c82333;
+}
+</style>
