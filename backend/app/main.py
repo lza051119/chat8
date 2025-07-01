@@ -20,6 +20,7 @@ app.include_router(keys.router, prefix="/api")
 app.include_router(signaling.router, prefix="/api")
 app.include_router(avatar.router, prefix="/api")
 app.include_router(security.router, prefix="/api")
+app.include_router(presence.router, prefix="/api")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

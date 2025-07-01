@@ -1,5 +1,5 @@
 
-**已初步完成所有后端API，但完成测试的仅有** *认证相关API (authAPI)、联系人相关API (contactAPI)、消息相关API (messageAPI)*，**剩余部分会继续开展测试，测试结果保存至`Postman_test_result.md`**
+**已初步完成所有后端API，且全部通过测试，测试结果保存至`Postman_test_result.md`**
 
 ---
 

@@ -32,8 +32,10 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int):
 async def handle_private_message(from_id, msg):
     to_id = msg.get("to_id")
     content = msg.get("content")
+    print(f"[WS] 收到私聊消息 from: {from_id}, to: {to_id}, content: {content}")
     ws = manager.get(to_id)
     if ws:
+        print(f"[WS] 推送消息给用户 {to_id}")
         await ws.send_text(json.dumps({
             "type": "message",
             "data": {
@@ -46,6 +48,8 @@ async def handle_private_message(from_id, msg):
                 "destroy_after": msg.get("destroy_after")
             }
         }))
+    else:
+        print(f"[WS] 用户 {to_id} 不在线，无法推送")
 
 async def handle_typing(from_id, msg, is_start):
     to_id = msg.get("to_id")
