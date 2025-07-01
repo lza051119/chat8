@@ -1,0 +1,68 @@
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text
+# 兼容所有SQLAlchemy版本的declarative_base导入
+try:
+    from sqlalchemy.orm import declarative_base, relationship
+except ImportError:
+    from sqlalchemy.ext.declarative import declarative_base
+    from sqlalchemy.orm import relationship
+from datetime import datetime
+
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(32), unique=True, index=True, nullable=False)
+    email = Column(String(128), unique=True, index=True, nullable=False)
+    password_hash = Column(String(128), nullable=False)
+    avatar = Column(String(256), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_seen = Column(DateTime, default=datetime.utcnow)
+    public_key = Column(Text, nullable=True)
+    status = Column(String(16), default='offline')
+    friends = relationship('Friend', back_populates='user', cascade='all, delete-orphan', foreign_keys='Friend.user_id')
+
+class Friend(Base):
+    __tablename__ = 'friends'
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    friend_id = Column(Integer, ForeignKey('users.id'))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship('User', foreign_keys=[user_id], back_populates='friends')
+
+class Message(Base):
+    __tablename__ = 'messages'
+    id = Column(Integer, primary_key=True, index=True)
+    from_id = Column(Integer, ForeignKey('users.id'))
+    to_id = Column(Integer, ForeignKey('users.id'))
+    content = Column(Text, nullable=False)
+    encrypted = Column(Boolean, default=True)
+    method = Column(String(16), default='Server')
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    destroy_after = Column(Integer, nullable=True)  # 阅后即焚秒数
+
+class Key(Base):
+    __tablename__ = 'keys'
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), unique=True)
+    public_key = Column(Text, nullable=False)
+    fingerprint = Column(String(128), nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+class SignalingMessage(Base):
+    __tablename__ = 'signaling_messages'
+    id = Column(Integer, primary_key=True, index=True)
+    from_user_id = Column(Integer, ForeignKey('users.id'))
+    to_user_id = Column(Integer, ForeignKey('users.id'))
+    msg_type = Column(String(32), nullable=False)
+    data = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    is_handled = Column(Boolean, default=False)
+
+class SecurityEvent(Base):
+    __tablename__ = 'security_events'
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    event_type = Column(String(64), nullable=False)
+    detail = Column(Text, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow) 
