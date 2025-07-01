@@ -27,7 +27,7 @@ class HybridMessaging {
   // 连接信令服务器（C/S）
   async connectSignalingServer() {
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(`ws://localhost:3000/ws?token=${this.token}`);
+      this.ws = new WebSocket(`ws://localhost:8000/ws/${this.currentUserId}?token=${this.token}`);
       
       this.ws.onopen = () => {
         console.log('信令服务器连接成功');
@@ -59,6 +59,11 @@ class HybridMessaging {
           
         case 'ice_candidate':
           await this.handleIceCandidate(data);
+          break;
+          
+        case 'message':
+          // 实时接收到的消息
+          this.handleServerMessage(data.data);
           break;
           
         case 'server_message':
@@ -103,9 +108,14 @@ class HybridMessaging {
       
       if (userStatus.online && userStatus.supportsP2P) {
         // 尝试P2P直连
-        const p2pResult = await this.sendP2PMessage(toUserId, content);
-        if (p2pResult.success) {
-          return { success: true, method: 'P2P', ...p2pResult };
+        try {
+          const p2pResult = await this.sendP2PMessage(toUserId, content);
+          if (p2pResult.success) {
+            return { success: true, method: 'P2P', ...p2pResult };
+          }
+        } catch (p2pError) {
+          console.warn('P2P发送失败，回退到服务器模式:', p2pError.message);
+          // P2P失败时不抛出错误，继续使用服务器转发
         }
       }
       
@@ -164,7 +174,7 @@ class HybridMessaging {
       
     } catch (error) {
       console.warn('P2P发送失败:', error);
-      throw error;
+      return { success: false, error: error.message };
     }
   }
 
@@ -329,7 +339,9 @@ class HybridMessaging {
   // 服务器转发消息（C/S模式）
   async sendServerMessage(toUserId, content) {
     try {
-      const response = await fetch('/api/messages/send', {
+      console.log('发送服务器消息:', { toUserId, content });
+      
+      const response = await fetch('/api/messages', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.token}`,
@@ -338,21 +350,30 @@ class HybridMessaging {
         body: JSON.stringify({
           to: toUserId,
           content: content,
-          timestamp: new Date().toISOString()
+          encrypted: false,
+          method: 'Server'
         })
       });
 
-      if (!response.ok) throw new Error('服务器转发失败');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('服务器响应错误:', response.status, errorText);
+        throw new Error(`服务器转发失败: ${response.status}`);
+      }
 
       const result = await response.json();
+      console.log('服务器响应结果:', result);
+      
       return { 
         success: true, 
         method: 'Server',
-        messageId: result.messageId 
+        id: result.id,
+        timestamp: result.timestamp
       };
 
     } catch (error) {
-      throw new Error(`服务器转发失败: ${error.message}`);
+      console.error('sendServerMessage错误:', error);
+      return { success: false, error: error.message };
     }
   }
 
@@ -415,4 +436,4 @@ class HybridMessaging {
   }
 }
 
-export default HybridMessaging; 
+export default HybridMessaging;

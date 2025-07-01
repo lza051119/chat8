@@ -11,6 +11,14 @@
           class="input"
         />
         <input 
+          v-if="!isLogin"
+          v-model="email" 
+          type="email"
+          placeholder="邮箱" 
+          required 
+          class="input"
+        />
+        <input 
           v-model="password" 
           type="password" 
           placeholder="密码" 
@@ -43,12 +51,16 @@ const emit = defineEmits(['login']);
 
 const isLogin = ref(true);
 const username = ref('');
+const email = ref('');
 const password = ref('');
 const error = ref('');
 const success = ref('');
 
 function toggleMode() {
   isLogin.value = !isLogin.value;
+  username.value = '';
+  email.value = '';
+  password.value = '';
   error.value = '';
   success.value = '';
 }
@@ -59,23 +71,37 @@ async function handleSubmit() {
   
   try {
     if (isLogin.value) {
-      // 登录逻辑（需要后端API）
-      // const res = await login({ username: username.value, password: password.value });
-      // emit('login', res.data.user, res.data.token);
-      
-      // 临时模拟登录成功
-      const mockUser = { id: 1, username: username.value };
-      const mockToken = 'mock-token-123';
-      emit('login', mockUser, mockToken);
+      // 登录逻辑
+      const res = await login({ username: username.value, password: password.value });
+      emit('login', res.data.data.user, res.data.data.token);
       success.value = '登录成功！';
     } else {
-      // 注册逻辑（需要后端API）
-      // await register({ username: username.value, password: password.value });
+      // 注册逻辑
+      await register({ username: username.value, email: email.value, password: password.value });
       success.value = '注册成功，请登录';
       isLogin.value = true;
     }
   } catch (e) {
-    error.value = isLogin.value ? '登录失败' : '注册失败';
+    console.error('网络请求错误:', e);
+    // 检查是否是网络连接问题
+    if (e.code === 'ERR_NETWORK' || e.code === 'NETWORK_ERROR' || 
+        e.message?.includes('Network Error') || 
+        e.message?.includes('connect ECONNREFUSED') ||
+        !e.response) {
+      error.value = '无法连接到服务器，请检查网络连接';
+    } else if (e.response) {
+      // 有响应但是状态码错误
+      const status = e.response.status;
+      if (status === 401) {
+        error.value = isLogin.value ? '用户名或密码错误' : '注册失败：用户已存在';
+      } else if (status === 422) {
+        error.value = isLogin.value ? '请求格式错误' : '注册信息格式错误';
+      } else {
+        error.value = isLogin.value ? '登录失败' : '注册失败';
+      }
+    } else {
+      error.value = isLogin.value ? '登录失败' : '注册失败';
+    }
   }
 }
 </script>
@@ -146,4 +172,4 @@ async function handleSubmit() {
   text-align: center;
   margin-top: 1rem;
 }
-</style> 
+</style>

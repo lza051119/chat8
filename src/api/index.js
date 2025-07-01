@@ -1,19 +1,19 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api', // 你的后端API前缀
+  baseURL: '/api', // 使用相对路径以启用Vite代理
 });
 
 // 用户注册
 export function register(data) {
   // 后端实现：用户注册
-  return api.post('/register', data);
+  return api.post('/auth/register', data);
 }
 
 // 用户登录
 export function login(data) {
   // 后端实现：用户登录，返回token
-  return api.post('/login', data);
+  return api.post('/auth/login', data);
 }
 
 // 获取联系人列表
@@ -44,4 +44,18 @@ export function uploadPublicKey(token, publicKey) {
 export function getFingerprint(token) {
   // 后端实现：返回当前用户的密钥指纹
   return api.get('/keys/fingerprint', { headers: { Authorization: `Bearer ${token}` } });
+}
+
+// 获取消息历史
+export function getMessageHistory(token, peerId, page = 1, limit = 50) {
+  return api.get(`/v1/messages/history/${peerId}?page=${page}&limit=${limit}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+// 发送消息
+export function sendMessage(token, data) {
+  return api.post('/v1/messages/send', data, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
 }

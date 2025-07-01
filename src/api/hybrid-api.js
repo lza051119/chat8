@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 // 创建axios实例
 const api = axios.create({
@@ -58,8 +58,14 @@ export const contactAPI = {
   // 获取联系人列表
   getContacts: () => api.get('/contacts'),
   
-  // 添加联系人
-  addContact: (userId) => api.post('/contacts', { userId }),
+  // 发送好友申请
+  sendFriendRequest: (userId, message = null) => api.post('/contacts/request', { to_user_id: userId, message }),
+  
+  // 获取好友申请列表
+  getFriendRequests: (type = 'received') => api.get(`/requests?request_type=${type}`),
+  
+  // 处理好友申请
+  handleFriendRequest: (requestId, action) => api.post('/requests/handle', { request_id: requestId, action }),
   
   // 删除联系人
   removeContact: (userId) => api.delete(`/contacts/${userId}`),
@@ -120,4 +126,38 @@ export const presenceAPI = {
   heartbeat: () => api.post('/presence/heartbeat')
 };
 
-export default api; 
+// 组合所有API模块
+export const hybridApi = {
+  // 认证相关
+  ...authAPI,
+  
+  // 联系人相关
+  getContacts: contactAPI.getContacts,
+  sendFriendRequest: contactAPI.sendFriendRequest,
+  getFriendRequests: contactAPI.getFriendRequests,
+  handleFriendRequest: contactAPI.handleFriendRequest,
+  removeContact: contactAPI.removeContact,
+  searchUsers: contactAPI.searchUsers,
+  
+  // 消息相关
+  sendMessage: messageAPI.sendMessage,
+  getMessageHistory: messageAPI.getMessageHistory,
+  
+  // 密钥管理
+  uploadPublicKey: keyAPI.uploadPublicKey,
+  getPublicKey: keyAPI.getPublicKey,
+  getAllPublicKeys: keyAPI.getAllPublicKeys,
+  
+  // WebRTC信令
+  sendOffer: signalingAPI.sendOffer,
+  sendAnswer: signalingAPI.sendAnswer,
+  sendICECandidate: signalingAPI.sendICECandidate,
+  getPendingSignals: signalingAPI.getPendingSignals,
+  
+  // 在线状态
+  setOnlineStatus: presenceAPI.setOnlineStatus,
+  getContactsStatus: presenceAPI.getContactsStatus,
+  heartbeat: presenceAPI.heartbeat
+};
+
+export default api;
