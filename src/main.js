@@ -9,4 +9,4 @@ const app = createApp(App);
 app.config.globalProperties.$hybridStore = hybridStore;
 
 app.use(router);
-app.mount('#app'); 
+app.mount('#app');

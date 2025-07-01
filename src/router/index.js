@@ -27,6 +27,11 @@ const routes = [
     component: () => import('../views/Settings.vue')
   },
   {
+    path: '/voice-call/:contactId?',
+    name: 'VoiceCall',
+    component: () => import('../views/VoiceCall.vue')
+  },
+  {
     path: '/dev/chat',
     component: () => import('../views/HybridChatMain.vue')
   },
@@ -41,4 +46,4 @@ const router = createRouter({
   routes
 });
 
-export default router; 
+export default router;

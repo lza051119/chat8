@@ -206,4 +206,4 @@ export const hybridStore = {
   },
 };
 
-export default hybridStore; 
+export default hybridStore;
