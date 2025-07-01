@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from db.database import SessionLocal
 from schemas.key import Key, KeyCreate
-from services import key_service, friend_service
+from services import key_service
 from typing import List
 from core.security import get_current_user
 from schemas.user import UserOut
@@ -48,4 +48,4 @@ def verify_fingerprint(body: FingerprintCheck, current_user: UserOut = Depends(g
     ok, err = key_service.verify_fingerprint(db, body.user_id, body.fingerprint)
     if not ok:
         raise HTTPException(status_code=400, detail=err)
-    return {"success": True, "message": "指纹校验通过"} 
+    return {"success": True, "message": "指纹校验通过"}

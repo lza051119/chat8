@@ -2,4 +2,4 @@ from db.database import engine
 from db.models import Base
 
 Base.metadata.create_all(bind=engine)
-print("数据库表已创建") 
+print("数据库表已创建")

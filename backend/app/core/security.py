@@ -43,4 +43,4 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> UserOut:
     db.close()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
-    return UserOut(id=str(user.id), username=user.username, email=user.email, avatar=user.avatar, created_at=user.created_at) 
+    return UserOut(id=str(user.id), username=user.username, email=user.email, avatar=user.avatar, created_at=user.created_at)

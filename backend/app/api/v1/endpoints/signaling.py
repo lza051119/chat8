@@ -28,4 +28,4 @@ def send_ice(body: IceCandidateRequest, current_user: UserOut = Depends(get_curr
 
 @router.get('/signaling/pending')
 def get_pending(current_user: UserOut = Depends(get_current_user)):
-    return {"success": True, "data": signaling_service.get_pending_signaling(int(current_user.id))} 
+    return {"success": True, "data": signaling_service.get_pending_signaling(int(current_user.id))}

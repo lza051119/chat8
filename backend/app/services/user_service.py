@@ -54,10 +54,10 @@ def search_users(query: str, page: int = 1, limit: int = 20):
     users = users_query.offset((page-1)*limit).limit(limit).all()
     result = [
         {
-            "id": str(u.id),
+            "id": u.id,
             "username": u.username,
             "email": u.email,
-            "avatarUrl": getattr(u, "avatar", None)
+            "avatar": getattr(u, "avatar", None)
         } for u in users
     ]
     db.close()
@@ -69,4 +69,4 @@ def search_users(query: str, page: int = 1, limit: int = 20):
             "total": total,
             "totalPages": (total + limit - 1) // limit
         }
-    } 
+    }

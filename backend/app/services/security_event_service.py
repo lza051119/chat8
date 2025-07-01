@@ -21,4 +21,4 @@ def get_events(user_id: int, limit: int = 20):
         } for e in events
     ]
     db.close()
-    return result 
+    return result

@@ -38,4 +38,4 @@ def delete_message(message_id: int, current_user: UserOut = Depends(get_current_
     ok, err = message_service.delete_message(db, int(current_user.id), message_id)
     if not ok:
         raise HTTPException(status_code=403 if err=="无权限删除该消息" else 404, detail=err)
-    return {"success": True, "message": "消息删除成功"} 
+    return {"success": True, "message": "消息删除成功"}

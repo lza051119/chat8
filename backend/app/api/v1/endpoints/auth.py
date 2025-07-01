@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from schemas.user import UserCreate, UserLogin, UserOut, ResponseModel
 from services.user_service import register_user, authenticate_user, search_users
 from core.security import get_current_user, create_access_token
@@ -37,4 +37,4 @@ def refresh_token(current_user: UserOut = Depends(get_current_user)):
 
 @router.get('/users/search')
 def user_search(q: str, page: int = 1, limit: int = 20, current_user: UserOut = Depends(get_current_user)):
-    return {"success": True, "data": search_users(q, page, limit)} 
+    return {"success": True, "data": search_users(q, page, limit)}
