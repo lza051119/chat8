@@ -44,4 +44,4 @@ export function uploadPublicKey(token, publicKey) {
 export function getFingerprint(token) {
   // 后端实现：返回当前用户的密钥指纹
   return api.get('/keys/fingerprint', { headers: { Authorization: `Bearer ${token}` } });
-} 
+}

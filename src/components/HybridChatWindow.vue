@@ -23,6 +23,18 @@
         </div>
       </div>
       
+      <!-- 通话按钮 -->
+      <div v-if="contact" class="call-actions">
+        <button 
+          @click="startVoiceCall" 
+          :disabled="!contact.online"
+          class="voice-call-btn"
+          title="语音通话"
+        >
+          📞
+        </button>
+      </div>
+      
       <div v-else class="no-contact">
         <p>请选择一个联系人开始聊天</p>
       </div>
@@ -62,8 +74,11 @@
 
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { hybridStore } from '../store/hybrid-store';
 import HybridMessageInput from './HybridMessageInput.vue';
+
+const router = useRouter();
 
 const messagesContainer = ref(null);
 
@@ -132,6 +147,16 @@ function handleMessageSent(message) {
   // 这里只需要滚动到底部
   scrollToBottom();
 }
+
+function startVoiceCall() {
+  if (!contact.value || !contact.value.online) {
+    alert('联系人不在线，无法发起语音通话');
+    return;
+  }
+  
+  // 跳转到语音通话页面
+  router.push(`/voice-call/${contact.value.id}`);
+}
 </script>
 
 <style scoped>
@@ -188,6 +213,38 @@ function handleMessageSent(message) {
   gap: 0.5rem;
   font-size: 0.875rem;
   color: #666;
+}
+
+.call-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.voice-call-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: #4caf50;
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-call-btn:hover:not(:disabled) {
+  background: #45a049;
+  transform: scale(1.1);
+}
+
+.voice-call-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .status-indicator {
@@ -289,4 +346,4 @@ function handleMessageSent(message) {
   background: white;
   border-top: 1px solid #ddd;
 }
-</style> 
+</style>

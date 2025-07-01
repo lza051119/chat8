@@ -1,224 +1,315 @@
 <template>
-  <div v-if="show" class="call-overlay">
-    <div class="call-container">
-      <div class="call-header">
+  <div v-if="isCallActive" class="call-overlay-mini">
+    <div class="mini-call-window">
+      <div class="mini-call-header">
         <div class="contact-info">
-          <div class="avatar">{{ contact.username?.[0]?.toUpperCase() }}</div>
-          <div class="info">
-            <h3>{{ contact.username }}</h3>
-            <div class="call-status">{{ callStatus }}</div>
-            <div class="call-duration">{{ formattedDuration }}</div>
+          <div class="mini-avatar">
+            <div class="avatar-placeholder">
+              {{ contact?.username?.[0]?.toUpperCase() || 'U' }}
+            </div>
           </div>
+          <div class="call-details">
+            <span class="contact-name">{{ contact?.username || '未知联系人' }}</span>
+            <span class="call-status">{{ callStatusText }}</span>
+            <span v-if="callDuration > 0" class="call-time">{{ formatDuration(callDuration) }}</span>
+          </div>
+        </div>
+        
+        <div class="mini-controls">
+          <button @click="expandCall" class="expand-btn" title="展开通话窗口">
+            ⬆️
+          </button>
+          <button @click="endCall" class="mini-end-btn" title="结束通话">
+            📞
+          </button>
         </div>
       </div>
       
-      <div class="call-controls">
-        <button 
-          @click="toggleMute" 
-          :class="['control-btn', { active: isMuted }]"
-          title="静音"
-        >
-          {{ isMuted ? '🔇' : '🎤' }}
-        </button>
-        
-        <button 
-          @click="endCall" 
-          class="control-btn end-call"
-          title="结束通话"
-        >
-          📞
-        </button>
-        
-        <button 
-          @click="toggleSpeaker" 
-          :class="['control-btn', { active: isSpeakerOn }]"
-          title="扬声器"
-        >
-          {{ isSpeakerOn ? '🔊' : '🔉' }}
-        </button>
+      <!-- 迷你音频可视化 -->
+      <div class="mini-visualizer" v-if="status === 'active'">
+        <div 
+          v-for="i in 8" 
+          :key="i" 
+          class="mini-wave-bar"
+          :style="{ height: miniWaveHeights[i] + '%' }"
+        ></div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { store } from '../store';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useRouter } from 'vue-router';
 
-const show = ref(false);
-const contact = ref({});
-const callStatus = ref('连接中...');
-const callDuration = ref(0);
-const isMuted = ref(false);
-const isSpeakerOn = ref(false);
-let durationTimer = null;
+const router = useRouter();
 
-const formattedDuration = computed(() => {
-  const minutes = Math.floor(callDuration.value / 60);
-  const seconds = callDuration.value % 60;
-  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+// Props
+const props = defineProps({
+  contact: {
+    type: Object,
+    default: null
+  },
+  status: {
+    type: String,
+    default: 'inactive' // inactive, connecting, ringing, active, ended
+  },
+  duration: {
+    type: Number,
+    default: 0
+  }
 });
 
-function startCall(target, type = 'voice') {
-  show.value = true;
-  contact.value = target;
-  callStatus.value = '正在呼叫...';
-  callDuration.value = 0;
-  
-  // 模拟通话连接过程
-  setTimeout(() => {
-    callStatus.value = type === 'voice' ? '语音通话中' : '视频通话中';
-    startDurationTimer();
-  }, 2000);
-  
-  // 1. 通过WebSocket发起通话信令（需要后端支持）
-  // 2. 建立WebRTC连接（前端实现）
-  console.log(`发起${type}通话:`, target);
+// Emits
+const emit = defineEmits(['end-call', 'expand-call']);
+
+// 响应式数据
+const callDuration = ref(0);
+const miniWaveHeights = ref(Array(8).fill(0).map(() => Math.random() * 100));
+
+// 定时器
+let durationTimer = null;
+let waveAnimationTimer = null;
+
+// 计算属性
+const isCallActive = computed(() => {
+  return props.status && props.status !== 'inactive' && props.status !== 'ended';
+});
+
+const callStatusText = computed(() => {
+  switch (props.status) {
+    case 'connecting': return '连接中...';
+    case 'ringing': return '呼叫中...';
+    case 'active': return '通话中';
+    case 'ended': return '已结束';
+    default: return '';
+  }
+});
+
+// 监听器
+watch(() => props.status, (newStatus) => {
+  if (newStatus === 'active') {
+    startTimers();
+  } else if (newStatus === 'ended' || newStatus === 'inactive') {
+    stopTimers();
+  }
+});
+
+watch(() => props.duration, (newDuration) => {
+  callDuration.value = newDuration;
+});
+
+// 生命周期
+onMounted(() => {
+  if (props.status === 'active') {
+    startTimers();
+  }
+});
+
+onUnmounted(() => {
+  stopTimers();
+});
+
+// 方法
+function startTimers() {
+  // 迷你音频波形动画
+  waveAnimationTimer = setInterval(() => {
+    if (props.status === 'active') {
+      miniWaveHeights.value = miniWaveHeights.value.map(() => 
+        Math.random() * 80 + 20
+      );
+    } else {
+      miniWaveHeights.value = miniWaveHeights.value.map(() => 5);
+    }
+  }, 150);
 }
 
-function endCall() {
-  show.value = false;
-  callStatus.value = '通话结束';
-  stopDurationTimer();
-  
-  // 通知后端结束通话
-  console.log('结束通话');
-}
-
-function toggleMute() {
-  isMuted.value = !isMuted.value;
-  // 实际实现中这里会控制麦克风
-  console.log('静音状态:', isMuted.value);
-}
-
-function toggleSpeaker() {
-  isSpeakerOn.value = !isSpeakerOn.value;
-  // 实际实现中这里会控制扬声器
-  console.log('扬声器状态:', isSpeakerOn.value);
-}
-
-function startDurationTimer() {
-  durationTimer = setInterval(() => {
-    callDuration.value++;
-  }, 1000);
-}
-
-function stopDurationTimer() {
-  if (durationTimer) {
-    clearInterval(durationTimer);
-    durationTimer = null;
+function stopTimers() {
+  if (waveAnimationTimer) {
+    clearInterval(waveAnimationTimer);
+    waveAnimationTimer = null;
   }
 }
 
-onUnmounted(() => {
-  stopDurationTimer();
-});
+function formatDuration(seconds) {
+  const minutes = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
 
-// 暴露给父组件的方法
-defineExpose({
-  startCall
-});
+function expandCall() {
+  if (props.contact) {
+    router.push(`/voice-call/${props.contact.id}`);
+  }
+  emit('expand-call');
+}
+
+function endCall() {
+  emit('end-call');
+}
 </script>
 
 <style scoped>
-.call-overlay {
+.call-overlay-mini {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-}
-
-.call-container {
+  top: 20px;
+  right: 20px;
+  z-index: 999;
+  width: 300px;
   background: white;
   border-radius: 12px;
-  padding: 2rem;
-  width: 400px;
-  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+  animation: slideIn 0.3s ease-out;
 }
 
-.call-header {
-  margin-bottom: 3rem;
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.mini-call-window {
+  padding: 1rem;
+}
+
+.mini-call-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
 }
 
 .contact-info {
   display: flex;
-  flex-direction: column;
   align-items: center;
+  gap: 0.75rem;
+  flex: 1;
 }
 
-.avatar {
-  width: 80px;
-  height: 80px;
+.mini-avatar {
+  width: 40px;
+  height: 40px;
+}
+
+.avatar-placeholder {
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
-  background: #007bff;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2rem;
   font-weight: bold;
-  margin-bottom: 1rem;
+  font-size: 1rem;
 }
 
-.info h3 {
-  margin: 0 0 0.5rem 0;
-  font-size: 1.5rem;
+.call-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.contact-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #333;
 }
 
 .call-status {
+  font-size: 0.8rem;
   color: #666;
-  margin-bottom: 0.5rem;
 }
 
-.call-duration {
-  font-size: 1.25rem;
-  font-weight: bold;
-  color: #007bff;
+.call-time {
+  font-size: 0.8rem;
+  color: #4caf50;
+  font-weight: 500;
 }
 
-.call-controls {
+.mini-controls {
   display: flex;
-  justify-content: center;
-  gap: 1rem;
+  gap: 0.5rem;
 }
 
-.control-btn {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
+.expand-btn,
+.mini-end-btn {
+  width: 32px;
+  height: 32px;
   border: none;
-  background: #f8f9fa;
+  border-radius: 50%;
   cursor: pointer;
-  font-size: 1.5rem;
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  font-size: 0.9rem;
 }
 
-.control-btn:hover {
-  background: #e9ecef;
-  transform: scale(1.05);
+.expand-btn {
+  background: #f0f0f0;
+  color: #666;
 }
 
-.control-btn.active {
-  background: #007bff;
+.expand-btn:hover {
+  background: #e0e0e0;
+  transform: scale(1.1);
+}
+
+.mini-end-btn {
+  background: #f44336;
   color: white;
 }
 
-.control-btn.end-call {
-  background: #dc3545;
-  color: white;
-  transform: rotate(135deg);
+.mini-end-btn:hover {
+  background: #d32f2f;
+  transform: scale(1.1);
 }
 
-.control-btn.end-call:hover {
-  background: #c82333;
+.mini-visualizer {
+  display: flex;
+  justify-content: center;
+  align-items: end;
+  height: 30px;
+  gap: 2px;
+  margin-top: 0.5rem;
 }
-</style> 
+
+.mini-wave-bar {
+  width: 3px;
+  background: linear-gradient(to top, #667eea, #764ba2);
+  border-radius: 1.5px;
+  transition: height 0.1s ease;
+  min-height: 3px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .call-overlay-mini {
+    width: 280px;
+    top: 10px;
+    right: 10px;
+  }
+  
+  .mini-call-window {
+    padding: 0.75rem;
+  }
+  
+  .contact-name {
+    font-size: 0.85rem;
+  }
+  
+  .call-status,
+  .call-time {
+    font-size: 0.75rem;
+  }
+}
+</style>
