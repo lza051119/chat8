@@ -1,26 +1,20 @@
 from fastapi import FastAPI, WebSocket, Depends
-from websocket.manager import ConnectionManager
 from fastapi.middleware.cors import CORSMiddleware
-from api.v1.endpoints import friends, messages, keys, auth, presence, signaling, avatar, security, local_storage, upload
-from api import steganography
-from websocket.events import websocket_endpoint
+from app.api.v1.endpoints import friends, messages, keys, auth, presence, signaling, avatar, security, local_storage, upload
+from app.api import steganography
+from app.websocket.events import websocket_endpoint
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
 from fastapi.exception_handlers import RequestValidationError
 from fastapi.exceptions import HTTPException
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
-from core.security import decode_access_token
-from services.unified_presence_service import unified_presence
+from app.core.security import decode_access_token
+from app.services.unified_presence_service import unified_presence
+from app.core.connection import get_connection_manager
+from app.websocket.manager import ConnectionManager
 
 app = FastAPI()
-
-# 创建 ConnectionManager 单例
-connection_manager = ConnectionManager()
-
-# 定义一个依赖项，用于获取 ConnectionManager 实例
-def get_connection_manager():
-    return connection_manager
 
 @app.on_event("startup")
 async def startup_event():
@@ -84,8 +78,8 @@ async def websocket_route(websocket: WebSocket, user_id: int, manager: Connectio
         await websocket.close(code=1008)
         return
     # 验证用户ID是否匹配
-    from db.database import SessionLocal
-    from db.models import User
+    from app.db.database import SessionLocal
+    from app.db.models import User
     db = SessionLocal()
     user = db.query(User).filter(User.username == username, User.id == user_id).first()
     db.close()
@@ -138,4 +132,10 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Run FastAPI server')
+    parser.add_argument('--port', type=int, default=8000, help='Port to run the server on')
+    args = parser.parse_args()
+    
+    uvicorn.run(app, host="0.0.0.0", port=args.port)

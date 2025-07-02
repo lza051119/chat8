@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends
-from core.security import get_current_user
-from schemas.user import UserOut
-from services import signaling_service
-from schemas.signaling import OfferRequest, AnswerRequest
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.security import get_current_user
+from app.schemas.user import UserOut
+from app.websocket.manager import ConnectionManager
+from app.schemas.signaling import OfferRequest, AnswerRequest
+from app.services import signaling_service
 from pydantic import BaseModel
 
 router = APIRouter()

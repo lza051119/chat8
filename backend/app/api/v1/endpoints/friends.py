@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from db.database import SessionLocal
-from db import models
-from schemas.friend import Friend, FriendCreate, FriendRequestCreate, FriendRequestResponse, FriendRequestOut
-from services import friend_service
+from app.db.database import SessionLocal
+from app.db import models
+from app.schemas.friend import Friend, FriendCreate, FriendRequestCreate, FriendRequestResponse, FriendRequestOut
+from app.services import friend_service
 from typing import List
-from core.security import get_current_user
-from schemas.user import UserOut
+from app.core.security import get_current_user
+from app.schemas.user import UserOut
 
 router = APIRouter()
 

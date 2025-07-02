@@ -1,20 +1,17 @@
-from fastapi import APIRouter, Depends
-from websocket.manager import ConnectionManager
-from core.security import get_current_user
-from schemas.user import UserOut
-from services import friend_service
-from services.unified_presence_service import unified_presence
-from db.database import SessionLocal
+from fastapi import APIRouter, Depends, HTTPException
+from app.websocket.manager import ConnectionManager
+from app.core.security import get_current_user
+from app.schemas.user import UserOut
+from app.services import friend_service
+from app.services.unified_presence_service import unified_presence
+from app.db.database import SessionLocal
 from typing import List
 from pydantic import BaseModel
 
 router = APIRouter()
 
-# Create a global connection manager instance
-_connection_manager = ConnectionManager()
-
-def get_connection_manager():
-    return _connection_manager
+# 导入全局连接管理器
+from app.core.connection import get_connection_manager
 
 class StatusUpdate(BaseModel):
     status: str
@@ -80,7 +77,7 @@ async def heartbeat(current_user: UserOut = Depends(get_current_user)):
     return {"success": True, "message": "心跳更新成功"}
 
 @router.post("/presence/register_p2p")
-async def register_p2p_capability(capabilities: P2PCapability, current_user: UserOut = Depends(get_current_user)):
+async def register_p2p_capability(capabilities: P2PCapability, current_user: UserOut = Depends(get_current_user), manager: ConnectionManager = Depends(get_connection_manager)):
     """注册P2P能力"""
     user_id = int(current_user.id)
     print(f"[DEBUG] 用户 {user_id} 注册P2P能力: {capabilities.dict()}")
@@ -88,11 +85,11 @@ async def register_p2p_capability(capabilities: P2PCapability, current_user: Use
     result = await unified_presence.set_p2p_capability(
         user_id, 
         capabilities.supportsP2P, 
-        capabilities.capabilities
+        capabilities.capabilities,
+        manager
     )
     
     # 验证注册结果
-    manager = get_connection_manager()
     status_check = await unified_presence.get_user_status(user_id, manager)
     print(f"[DEBUG] P2P注册后状态验证: {status_check}")
     

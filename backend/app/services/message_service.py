@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
-from db import models
+from app.db import models
 from datetime import datetime, timedelta
 from typing import List
-from services.message_db_service import MessageDBService
+from app.services.message_db_service import MessageDBService
 
 def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted: bool = True, method: str = 'Server', destroy_after: int = None, message_type: str = 'text', file_path: str = None, file_name: str = None, hidding_message: str = None, recipient_online: bool = False):
     # 服务器数据库只作为临时暂存，只有在接收方不在线时才保存

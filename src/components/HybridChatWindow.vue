@@ -40,6 +40,13 @@
         >
           📞
         </button>
+        <button 
+          @click="resetVoiceCallState" 
+          class="reset-call-btn"
+          title="重置通话状态"
+        >
+          🔄
+        </button>
       </div>
       
       <div v-else class="no-contact">
@@ -67,6 +74,7 @@
                 class="image-content"
                 @error="handleImageError"
                 @contextmenu="handleImageRightClick(message, $event)"
+                @click="openImageModal(message)"
               />
               <div v-else class="image-placeholder">
                 <span class="image-icon">📷</span>
@@ -180,6 +188,7 @@
                     :alt="message.fileName || '图片'"
                     class="image-content"
                     @error="handleImageError"
+                    @click="openImageModal(message)"
                   />
                   <div v-else class="image-placeholder">
                     <span class="image-icon">📷</span>
@@ -230,6 +239,39 @@
         </div>
       </div>
     </div>
+
+    <!-- 图片放大模态框 -->
+    <div v-if="showImageModal" class="image-modal-overlay" @click="closeImageModal">
+      <div class="image-modal" @click.stop>
+        <div class="image-modal-header">
+          <h3>{{ currentImageMessage?.fileName || '图片' }}</h3>
+          <button @click="closeImageModal" class="close-btn">×</button>
+        </div>
+        <div class="image-modal-content">
+          <img 
+            v-if="currentImageMessage?.filePath" 
+            :src="getImageUrl(currentImageMessage.filePath)" 
+            :alt="currentImageMessage.fileName || '图片'"
+            class="modal-image"
+            @error="handleImageError"
+          />
+          <div v-if="currentImageMessage?.hiddenMessage" class="modal-steganography-hint">
+            <span class="hint-icon">🔐</span>
+            <span class="hint-text">此图片包含隐藏信息</span>
+          </div>
+          <div v-if="currentImageMessage?.extractedText" class="modal-extracted-message">
+            <div class="extracted-header">
+              <span class="extracted-icon">📝</span>
+              <span class="extracted-label">隐藏信息：</span>
+            </div>
+            <div class="extracted-content">{{ currentImageMessage.extractedText }}</div>
+          </div>
+        </div>
+        <div class="image-modal-footer">
+          <span class="image-info">{{ formatTime(currentImageMessage?.timestamp) }}</span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -263,6 +305,10 @@ const historyPagination = ref({
 const showDecryptTooltip = ref(false);
 const currentLongPressMessage = ref(null);
 const tooltipPosition = ref({ x: 0, y: 0 });
+
+// 图片放大模态框相关状态
+const showImageModal = ref(false);
+const currentImageMessage = ref(null);
 
 const contact = computed(() => hybridStore.currentContact);
 const currentUser = computed(() => hybridStore.user);
@@ -721,14 +767,68 @@ async function handleSteganographySent(messageData) {
   }
 }
 
-function startVoiceCall() {
+async function startVoiceCall() {
   if (!contact.value || !contact.value.online) {
     alert('联系人不在线，无法发起语音通话');
     return;
   }
   
-  // 跳转到语音通话页面
-  router.push(`/voice-call/${contact.value.id}`);
+  try {
+    const hybridMessaging = hybridStore.getHybridMessaging();
+    if (!hybridMessaging) {
+      alert('消息服务未初始化，无法发起语音通话');
+      return;
+    }
+    
+    console.log('[HybridChatWindow] 开始发起语音通话，联系人ID:', contact.value.id);
+    
+    // 发起语音通话
+    const result = await hybridMessaging.initiateVoiceCall(contact.value.id);
+    
+    console.log('[HybridChatWindow] 语音通话发起成功:', result);
+    
+    // 如果成功，跳转到语音通话页面
+    if (result && result.success !== false) {
+      router.push(`/voice-call/${contact.value.id}`);
+    } else {
+      alert(`发起语音通话失败: ${result?.error || '未知错误'}`);
+    }
+  } catch (error) {
+    console.error('[HybridChatWindow] 发起语音通话失败:', error);
+    
+    // 根据错误类型提供更具体的错误信息
+    let errorMessage = '发起语音通话失败';
+    if (error.message.includes('WebSocket') || error.message.includes('网络')) {
+      errorMessage = '网络连接异常，请检查网络后重试';
+    } else if (error.message.includes('麦克风')) {
+      errorMessage = '麦克风访问失败，请检查麦克风权限';
+    } else if (error.message.includes('消息服务')) {
+      errorMessage = '服务未就绪，请稍后重试';
+    } else {
+      errorMessage = `发起语音通话失败: ${error.message}`;
+    }
+    
+    alert(errorMessage);
+  }
+}
+
+// 重置语音通话状态
+function resetVoiceCallState() {
+  try {
+    const hybridMessaging = hybridStore.getHybridMessaging();
+    if (!hybridMessaging) {
+      alert('消息服务未初始化');
+      return;
+    }
+    
+    const result = hybridMessaging.forceResetVoiceCallState();
+    if (result.success) {
+      alert('通话状态已重置');
+    }
+  } catch (error) {
+    console.error('重置通话状态失败:', error);
+    alert(`重置失败: ${error.message}`);
+  }
 }
 
 // 历史记录相关方法
@@ -1041,6 +1141,19 @@ function getImageUrl(filePath) {
   return finalUrl;
 }
 
+// 图片放大模态框相关函数
+function openImageModal(message) {
+  currentImageMessage.value = message;
+  showImageModal.value = true;
+  console.log('打开图片放大模态框:', message);
+}
+
+function closeImageModal() {
+  showImageModal.value = false;
+  currentImageMessage.value = null;
+  console.log('关闭图片放大模态框');
+}
+
 
 </script>
 
@@ -1107,7 +1220,8 @@ function getImageUrl(filePath) {
 }
 
 .history-btn,
-.voice-call-btn {
+.voice-call-btn,
+.reset-call-btn {
   width: 40px;
   height: 40px;
   border: none;
@@ -1143,6 +1257,15 @@ function getImageUrl(filePath) {
   background: #ccc;
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.reset-call-btn {
+  background: #ff9800;
+}
+
+.reset-call-btn:hover {
+  background: #f57c00;
+  transform: scale(1.1);
 }
 
 .status-indicator {
@@ -1241,14 +1364,108 @@ function getImageUrl(filePath) {
 
 .image-content {
   max-width: 200px;
-  max-height: 200px;
-  border-radius: 0.5rem;
+  height: auto;
+  border-radius: 8px;
   cursor: pointer;
   transition: transform 0.2s;
 }
 
 .image-content:hover {
-  transform: scale(1.05);
+  transform: scale(1.02);
+}
+
+/* 图片放大模态框样式 */
+.image-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+  backdrop-filter: blur(5px);
+}
+
+.image-modal {
+  background: white;
+  border-radius: 12px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.image-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #eee;
+  background: #f8f9fa;
+}
+
+.image-modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #333;
+  font-weight: 500;
+}
+
+.image-modal-content {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-height: calc(90vh - 120px);
+  overflow: auto;
+}
+
+.modal-image {
+  max-width: 100%;
+  max-height: 70vh;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.modal-steganography-hint {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 193, 7, 0.05));
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #856404;
+}
+
+.modal-extracted-message {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: linear-gradient(135deg, rgba(40, 167, 69, 0.1), rgba(40, 167, 69, 0.05));
+  border: 1px solid rgba(40, 167, 69, 0.3);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 500px;
+}
+
+.image-modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #eee;
+  background: #f8f9fa;
+  text-align: center;
+}
+
+.image-info {
+  font-size: 0.875rem;
+  color: #666;
 }
 
 .image-placeholder {

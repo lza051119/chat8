@@ -24,7 +24,7 @@
           <!-- 隐写术图片消息 -->
           <div v-if="msg.type === 'steganography'" class="steganography-message">
             <div class="stego-image">
-              <img :src="msg.imageUrl" alt="隐写术图片" class="stego-img" />
+              <img :src="msg.imageUrl" alt="隐写术图片" class="stego-img" @click="openImageModal(msg)" />
               <div class="stego-overlay">
                 <span class="stego-icon">🔍</span>
                 <span class="stego-text">隐写术图片</span>
@@ -45,6 +45,31 @@
     </div>
     
     <MessageInput :contact="contact" @send="sendMessage" />
+    
+    <!-- 图片放大模态框 -->
+    <div v-if="showImageModal" class="image-modal-overlay" @click="closeImageModal">
+      <div class="image-modal" @click.stop>
+        <div class="image-modal-header">
+          <h3>隐写术图片</h3>
+          <button @click="closeImageModal" class="close-btn">×</button>
+        </div>
+        <div class="image-modal-content">
+          <img 
+            v-if="currentImageMessage?.imageUrl" 
+            :src="currentImageMessage.imageUrl" 
+            alt="隐写术图片"
+            class="modal-image"
+          />
+          <div class="modal-steganography-hint">
+            <span class="hint-icon">🔐</span>
+            <span class="hint-text">此图片包含隐藏信息</span>
+          </div>
+        </div>
+        <div class="image-modal-footer">
+          <span class="image-info">{{ formatTime(currentImageMessage?.time) }}</span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -58,6 +83,10 @@ const props = defineProps({ contact: Object });
 const messages = ref([]);
 const messagesContainer = ref(null);
 const ws = ref(null);
+
+// 图片放大模态框相关状态
+const showImageModal = ref(false);
+const currentImageMessage = ref(null);
 
 watch(() => props.contact, (newContact) => {
   if (newContact) {
@@ -241,6 +270,19 @@ function toggleSecurity() {
 
 function startCall() {
   alert('语音通话功能（待实现）');
+}
+
+// 图片放大模态框相关函数
+function openImageModal(message) {
+  currentImageMessage.value = message;
+  showImageModal.value = true;
+  console.log('打开图片放大模态框:', message);
+}
+
+function closeImageModal() {
+  showImageModal.value = false;
+  currentImageMessage.value = null;
+  console.log('关闭图片放大模态框');
 }
 
 // WebSocket连接管理
@@ -462,5 +504,118 @@ onUnmounted(() => {
 
 .encrypted {
   color: #28a745;
+}
+
+/* 图片放大模态框样式 */
+.image-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+  backdrop-filter: blur(5px);
+}
+
+.image-modal {
+  background: white;
+  border-radius: 12px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.image-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #eee;
+  background: #f8f9fa;
+}
+
+.image-modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #333;
+  font-weight: 500;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #666;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.close-btn:hover {
+  background: #e9ecef;
+}
+
+.image-modal-content {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-height: calc(90vh - 120px);
+  overflow: auto;
+}
+
+.modal-image {
+  max-width: 100%;
+  max-height: 70vh;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.modal-steganography-hint {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 193, 7, 0.05));
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #856404;
+}
+
+.image-modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #eee;
+  background: #f8f9fa;
+  text-align: center;
+}
+
+.image-info {
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.stego-img {
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.stego-img:hover {
+  transform: scale(1.02);
 }
 </style>

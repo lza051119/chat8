@@ -1,15 +1,15 @@
 from fastapi import WebSocket
 from fastapi.websockets import WebSocketDisconnect
 from .manager import ConnectionManager
-from db.database import SessionLocal
-from db import models
-from core.security import decode_access_token
+from app.db.database import SessionLocal
+from app.db import models
+from app.core.security import decode_access_token
 from datetime import datetime
-from services.unified_presence_service import unified_presence
+from app.services.unified_presence_service import unified_presence
 import json
 import asyncio
 from sqlalchemy.orm import Session
-from services.unified_presence_service import UnifiedPresenceService
+from app.services.unified_presence_service import UnifiedPresenceService
 
 
 
@@ -40,10 +40,12 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, manager: Connec
             elif message.get('type') == 'screenshot_reminder':
                 await handle_screenshot_reminder(message, user_id, manager)
             elif message.get('type') in ['webrtc_offer', 'webrtc_answer', 'webrtc_ice_candidate']:
-                await handle_webrtc_signaling(message, user_id, manager)
+                await handle_webrtc_signaling(user_id, message, manager)
+            elif message.get('type') in ['voice_call_offer', 'voice_call_answer', 'voice_call_reject', 'voice_call_end', 'voice_ice_candidate']:
+                await handle_voice_call_signaling(user_id, message, manager)
                 
     except WebSocketDisconnect:
-        manager.disconnect(user_id)
+        manager.disconnect(user_id, websocket)
         # 使用统一状态管理服务处理用户断开
         await unified_presence.user_disconnected(user_id, manager)
 
@@ -60,7 +62,7 @@ async def handle_private_message(from_id, msg, manager: ConnectionManager):
     # 保存消息到数据库（只有接收方不在线时才保存到服务器数据库）
     db = SessionLocal()
     try:
-        from services import message_service
+        from app.services import message_service
         saved_msg = message_service.send_message(
             db,
             from_id=from_id,
@@ -115,7 +117,7 @@ async def handle_private_message(from_id, msg, manager: ConnectionManager):
                 
             # 保存到接收方的本地数据库
             try:
-                from services.message_db_service import MessageDBService
+                from app.services.message_db_service import MessageDBService
                 MessageDBService.add_message(
                     user_id=to_id,
                     message_data=message_data
@@ -149,7 +151,7 @@ async def handle_image_message(from_id, msg, manager: ConnectionManager):
     # 保存消息到数据库（只有接收方不在线时才保存到服务器数据库）
     db = SessionLocal()
     try:
-        from services import message_service
+        from app.services import message_service
         saved_msg = message_service.send_message(
             db,
             from_id=from_id,
@@ -200,7 +202,7 @@ async def handle_image_message(from_id, msg, manager: ConnectionManager):
                 
             # 保存到接收方的本地数据库
             try:
-                from services.message_db_service import MessageDBService
+                from app.services.message_db_service import MessageDBService
                 MessageDBService.add_message(
                     user_id=to_id,
                     message_data=message_data
@@ -234,7 +236,7 @@ async def send_offline_messages(user_id: int, websocket: WebSocket):
     """发送用户离线期间收到的消息"""
     db = SessionLocal()
     try:
-        from services import message_service
+        from app.services import message_service
         # 获取用户的离线消息
         offline_messages = message_service.get_offline_messages(db, user_id)
         
@@ -276,7 +278,7 @@ async def send_offline_messages(user_id: int, websocket: WebSocket):
                     
                     # 保存到接收方的本地数据库
                     try:
-                        from services.message_db_service import MessageDBService
+                        from app.services.message_db_service import MessageDBService
                         MessageDBService.add_message(
                             user_id=user_id,
                             message_data=message_data
@@ -297,6 +299,33 @@ async def send_offline_messages(user_id: int, websocket: WebSocket):
         print(f"发送离线消息失败: {e}")
     finally:
         db.close()
+
+async def handle_typing_status(msg, from_id, manager: ConnectionManager, is_start: bool):
+    """处理打字状态消息"""
+    to_id = msg.get("to_id")
+    ws = manager.get(to_id)
+    if ws:
+        await ws.send_text(json.dumps({
+            "type": "typing_start" if is_start else "typing_stop",
+            "data": {
+                "from": from_id,
+                "to": to_id,
+                "isTyping": is_start
+            }
+        }))
+
+async def handle_screenshot_reminder(msg, from_id, manager: ConnectionManager):
+    """处理截屏提醒消息"""
+    to_id = msg.get("to_id")
+    ws = manager.get(to_id)
+    if ws:
+        await ws.send_text(json.dumps({
+            "type": "screenshot_reminder",
+            "data": {
+                "from": from_id,
+                "to": to_id
+            }
+        }))
 
 async def handle_typing(from_id, msg, is_start, manager: ConnectionManager):
     to_id = msg.get("to_id")
@@ -324,25 +353,62 @@ async def handle_screenshot_alert(from_id, msg, manager: ConnectionManager):
         }))
 
 async def handle_webrtc_signaling(from_id, msg, manager: ConnectionManager):
+    if not isinstance(msg, dict):
+        print(f"[错误] handle_webrtc_signaling收到的消息格式不正确: {msg}")
+        return
+
     to_id = msg.get("to_id")
     ws = manager.get(to_id)
+    
+    print(f"[WebRTC] 收到信令: {msg['type']} from {from_id} to {to_id}")
+    print(f"[WebRTC] 原始消息: {msg}")
+    
+    if ws:
+        # 构建转发给目标客户端的消息，保持与前端期望的格式一致
+        forward_msg = {
+            "type": msg["type"],
+            "from_id": from_id,
+            "to_id": to_id,
+            "payload": msg.get("payload")  # 直接转发payload字段
+        }
+        
+        print(f"[WebRTC] 转发消息: {forward_msg}")
+        await ws.send_text(json.dumps(forward_msg))
+        print(f"[WebRTC] 信令已转发: {msg['type']} from {from_id} to {to_id}")
+    else:
+        print(f"[WebRTC] 目标用户 {to_id} 不在线，信令丢弃")
+
+async def handle_voice_call_signaling(from_id, msg, manager: ConnectionManager):
+    """处理语音通话信令消息"""
+    to_id = msg.get("to_id")
+    ws = manager.get(to_id)
+    
+    print(f"[语音通话] 收到信令: {msg['type']} from {from_id} to {to_id}")
+    
     if ws:
         # 构建转发给目标客户端的消息
         forward_msg = {
             "type": msg["type"],
-            "data": {
-                "from": from_id,
-                # 根据消息类型设置正确的负载字段
-            }
+            "from_id": from_id,
+            "to_id": to_id
         }
-        if msg["type"] == 'webrtc_offer':
-            forward_msg['data']['offer'] = msg.get("payload")
-        elif msg["type"] == 'webrtc_answer':
-            forward_msg['data']['answer'] = msg.get("payload")
-        elif msg["type"] == 'webrtc_ice_candidate':
-            forward_msg['data']['candidate'] = msg.get("payload")
+        
+        # 根据消息类型添加相应的数据
+        if msg["type"] == 'voice_call_offer':
+            # 前端发送的是payload字段，转发时使用offer字段
+            forward_msg['offer'] = msg.get("payload")
+        elif msg["type"] == 'voice_call_answer':
+            # 前端发送的是payload字段，转发时使用answer字段
+            forward_msg['answer'] = msg.get("payload")
+        elif msg["type"] == 'voice_ice_candidate':
+            # 前端发送的是payload字段，转发时使用candidate字段
+            forward_msg['candidate'] = msg.get("payload")
+        # voice_call_reject 和 voice_call_end 不需要额外数据
         
         await ws.send_text(json.dumps(forward_msg))
+        print(f"[语音通话] 信令已转发: {msg['type']} from {from_id} to {to_id}")
+    else:
+        print(f"[语音通话] 目标用户 {to_id} 不在线，信令丢弃")
 
 # 注意：notify_friends_status函数已被弃用
 # 现在使用统一状态管理服务(unified_presence_service)中的_notify_friends_status_change方法

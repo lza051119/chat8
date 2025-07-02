@@ -16,6 +16,9 @@ const state = reactive({
   // 当前聊天对象
   currentContact: null,
 
+  // 当前通话信息
+  currentCallInfo: null,
+
   // P2P连接状态
   p2pConnections: {},
 
@@ -61,6 +64,9 @@ export const hybridStore = {
   },
   get messageStats() {
     return state.messageStats;
+  },
+  get currentCallInfo() {
+    return state.currentCallInfo;
   },
   
   // 计算属性
@@ -203,6 +209,16 @@ export const hybridStore = {
     state.currentContact = contact;
   },
 
+  // 设置当前通话信息
+  setCurrentCallInfo(callInfo) {
+    state.currentCallInfo = callInfo;
+  },
+
+  // 清除当前通话信息
+  clearCurrentCallInfo() {
+    state.currentCallInfo = null;
+  },
+
   // 添加新联系人
   addContact(contact) {
     if (!state.contacts.find(c => c.id === contact.id)) {
@@ -334,7 +350,15 @@ export const hybridStore = {
 
   // 获取联系人信息
   getContact(userId) {
-    return state.contacts.find(c => c.id === userId);
+    // 确保类型匹配，支持字符串和数字类型的userId
+    const numericUserId = parseInt(userId);
+    const stringUserId = String(userId);
+    return state.contacts.find(c => c.id === userId || c.id === numericUserId || c.id === stringUserId);
+  },
+
+  // 获取所有联系人
+  getContacts() {
+    return state.contacts;
   },
 
   // 更新P2P连接状态
@@ -455,12 +479,30 @@ export const hybridStore = {
         const websocketConnected = data.websocketConnected;
         const p2pCapability = data.p2pCapability;
         
+        // 检查用户是否从离线变为在线
+        const wasOnline = state.onlineUsers.has(userId);
+        const nowOnline = isOnline;
+        
         // 更新在线状态
         this.updateOnlineStatus(userId, isOnline, timestamp);
         
         // 如果有P2P能力信息，更新P2P状态
         if (p2pCapability !== undefined) {
           this.updateP2PConnection(userId, p2pCapability ? 'available' : 'unavailable');
+        }
+        
+        // 如果用户从离线变为在线且支持P2P，自动尝试建立P2P连接
+        if (!wasOnline && nowOnline && p2pCapability && state.hybridMessaging) {
+          console.log(`[P2P自动连接] 用户 ${userId} 上线且支持P2P，尝试建立连接`);
+          // 异步建立P2P连接，不阻塞状态更新
+          setTimeout(async () => {
+            try {
+              await state.hybridMessaging.preConnectToUser(userId);
+              console.log(`[P2P自动连接] 用户 ${userId} P2P连接建立成功`);
+            } catch (error) {
+              console.log(`[P2P自动连接] 用户 ${userId} P2P连接建立失败:`, error.message);
+            }
+          }, 100); // 延迟100ms执行，确保状态更新完成
         }
         
         // 状态变化已处理

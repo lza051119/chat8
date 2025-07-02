@@ -27,10 +27,14 @@ api.interceptors.response.use((response) => {
   return response;
 }, (error) => {
   if (error.response?.status === 401) {
-    // token过期，清除本地存储并跳转登录
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    window.location.href = '/login';
+    // 检查是否是登录请求，如果是登录请求则不自动跳转
+    const isLoginRequest = error.config?.url?.includes('/auth/login');
+    if (!isLoginRequest) {
+      // token过期，清除本地存储并跳转登录
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
   }
   return Promise.reject(error);
 });

@@ -183,6 +183,24 @@
         <span class="notification-text">{{ connectionNotification.message }}</span>
       </div>
     </div>
+
+    <!-- 来电通知模态框 -->
+    <div v-if="incomingCall" class="modal-overlay incoming-call-overlay">
+      <div class="incoming-call-modal">
+        <div class="caller-info">
+          <div class="caller-avatar">
+            <img v-if="incomingCall.caller.avatar" :src="incomingCall.caller.avatar" :alt="incomingCall.caller.username" />
+            <div v-else class="avatar-placeholder">{{ incomingCall.caller.username[0].toUpperCase() }}</div>
+          </div>
+          <h3 class="caller-name">{{ incomingCall.caller.username }}</h3>
+          <p class="call-type">正在呼叫您...</p>
+        </div>
+        <div class="call-actions">
+          <button @click="rejectCall" class="action-btn reject-btn">拒接</button>
+          <button @click="acceptCall" class="action-btn accept-btn">接听</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -206,6 +224,7 @@ const connectionNotification = ref(null);
 const contactList = ref(null);
 const messaging = ref(null);
 const pendingRequestsCount = ref(0);
+const incomingCall = ref(null);
 
 // 计算属性
 const user = computed(() => hybridStore.user);
@@ -305,6 +324,67 @@ onUnmounted(() => {
 });
 
 // 方法
+function handleIncomingCall(callInfo) {
+  console.log('[来电处理] 收到来电信息:', callInfo);
+  const caller = hybridStore.getContact(callInfo.fromUserId);
+  console.log('[来电处理] 查找到的联系人信息:', caller);
+  console.log('[来电处理] 所有联系人列表:', hybridStore.getContacts());
+  if (caller) {
+    incomingCall.value = {
+      ...callInfo,
+      caller: caller
+    };
+    console.log('[来电处理] 来电信息已设置，将显示来电界面:', incomingCall.value);
+  } else {
+    console.warn(`收到未知联系人 ${callInfo.fromUserId} 的来电`);
+    console.warn('[来电处理] 尝试通过用户ID查找联系人失败，fromUserId类型:', typeof callInfo.fromUserId);
+  }
+}
+
+async function acceptCall() {
+  if (incomingCall.value) {
+    const contactId = incomingCall.value.fromUserId;
+    const callInfo = incomingCall.value;
+    
+    try {
+      console.log('[接听通话] 开始接听来自用户', contactId, '的通话');
+      
+      // 先设置通话信息到store
+      hybridStore.setCurrentCallInfo(callInfo);
+      
+      // 直接在这里接听通话，避免在VoiceCall页面重复处理
+      const result = await messaging.value.acceptVoiceCall(contactId, callInfo.offer);
+      console.log('[接听通话] 通话接听成功:', result);
+      
+      // 跳转到通话页面
+      router.push(`/voice-call/${contactId}`);
+      
+      // 延迟清理来电状态，确保VoiceCall页面能够正确识别通话状态
+      setTimeout(() => {
+        incomingCall.value = null;
+        console.log('[接听通话] 延迟清理来电状态完成');
+      }, 1000);
+      
+    } catch (error) {
+      console.error('[接听通话] 接听失败:', error);
+      
+      // 接听失败时清理状态
+      incomingCall.value = null;
+      hybridStore.clearCurrentCallInfo();
+      
+      // 显示错误提示
+      showNotification('接听通话失败', 'error', '❌');
+    }
+  }
+}
+
+async function rejectCall() {
+  if (incomingCall.value) {
+    await messaging.value.rejectVoiceCall(incomingCall.value.fromUserId);
+    incomingCall.value = null;
+  }
+}
+
 async function initializeMessaging() {
   try {
     // 首先重新初始化数据库（用户登录后才有token）
@@ -333,6 +413,10 @@ async function initializeMessaging() {
       
       // 加载所有联系人的消息历史
       await loadAllMessageHistory();
+
+      // 设置来电处理
+      messaging.value.onVoiceCallReceived = handleIncomingCall;
+      console.log('[来电处理] onVoiceCallReceived 回调已设置');
       
       console.log('混合消息系统初始化完成，在线状态已同步给好友');
     } else {
@@ -1066,6 +1150,117 @@ async function logout() {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+.modal-overlay.incoming-call-overlay {
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1001;
+}
+
+.incoming-call-modal {
+  background: linear-gradient(145deg, #2c2c2c, #1a1a1a);
+  border-radius: 20px;
+  padding: 40px;
+  width: 320px;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  animation: fadeIn 0.3s ease-out;
+}
+
+.caller-info {
+  margin-bottom: 30px;
+}
+
+.caller-avatar {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  margin: 0 auto 20px;
+  overflow: hidden;
+  border: 3px solid #4a90e2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #333;
+}
+
+.caller-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  font-size: 48px;
+  color: #fff;
+  font-weight: bold;
+}
+
+.caller-name {
+  font-size: 24px;
+  font-weight: 600;
+  color: #fff;
+  margin: 0;
+}
+
+.call-type {
+  font-size: 16px;
+  color: #aaa;
+  margin-top: 5px;
+}
+
+.call-actions {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+}
+
+.action-btn {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  color: white;
+  font-size: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: all 0.3s ease;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+.reject-btn {
+  background-color: #e74c3c;
+}
+
+.reject-btn:hover {
+  background-color: #c0392b;
+  transform: translateY(-3px);
+}
+
+.accept-btn {
+  background-color: #2ecc71;
+}
+
+.accept-btn:hover {
+  background-color: #27ae60;
+  transform: translateY(-3px);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* 响应式设计 */

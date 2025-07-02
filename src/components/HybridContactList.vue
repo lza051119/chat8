@@ -191,6 +191,25 @@ async function loadContacts() {
     // 后端返回格式: {success: true, data: {items: [...], ...}}
     const contactsData = response.data.data.items || [];
     hybridStore.setContacts(contactsData);
+    
+    // 为在线且支持P2P的联系人自动建立P2P连接
+    const hybridMessaging = hybridStore.getHybridMessaging();
+    if (hybridMessaging) {
+      contactsData.forEach(contact => {
+        if (contact.online && contact.connectionStatus?.canUseP2P) {
+          console.log(`[联系人加载] 为在线用户 ${contact.id} 建立P2P连接`);
+          // 异步建立P2P连接，不阻塞UI
+          setTimeout(async () => {
+            try {
+              await hybridMessaging.preConnectToUser(contact.id);
+              console.log(`[联系人加载] 用户 ${contact.id} P2P连接建立成功`);
+            } catch (error) {
+              console.log(`[联系人加载] 用户 ${contact.id} P2P连接建立失败:`, error.message);
+            }
+          }, Math.random() * 1000); // 随机延迟0-1秒，避免同时建立过多连接
+        }
+      });
+    }
   } catch (error) {
     console.error('加载联系人失败:', error);
   }
@@ -198,6 +217,20 @@ async function loadContacts() {
 
 async function selectContact(contact) {
   hybridStore.setCurrentContact(contact);
+  
+  // 如果联系人在线且支持P2P，尝试建立P2P连接
+  const hybridMessaging = hybridStore.getHybridMessaging();
+  if (hybridMessaging && contact.online && contact.connectionStatus?.canUseP2P) {
+    // 检查是否已有P2P连接
+    const p2pStatus = hybridMessaging.getP2PConnectionStatus(contact.id);
+    if (!p2pStatus.connected) {
+      console.log(`[联系人选择] 为用户 ${contact.id} 建立P2P连接`);
+      // 异步建立P2P连接
+      hybridMessaging.preConnectToUser(contact.id).catch(error => {
+        console.log(`[联系人选择] 用户 ${contact.id} P2P连接建立失败:`, error.message);
+      });
+    }
+  }
   
   // 加载该联系人的消息历史
   try {

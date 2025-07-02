@@ -1,8 +1,8 @@
-from typing import Dict, List, Optional, Set
+from typing import Dict, Set, Optional, List
 from datetime import datetime, timedelta
-from db.models import User
-from db.database import SessionLocal
-from websocket.manager import ConnectionManager
+from app.db.models import User
+from app.db.database import SessionLocal
+from app.websocket.manager import ConnectionManager
 import asyncio
 import json
 from sqlalchemy.orm import Session
@@ -53,13 +53,21 @@ class UnifiedPresenceService:
         用户WebSocket连接断开时调用
         """
         async with self._sync_lock:
-            # 更新用户状态为离线
-            await self._update_user_status(user_id, 'offline', websocket_connected=False)
+            # 检查用户是否还有其他活跃连接
+            remaining_connections = manager.get_all_connections(user_id)
+            websocket_connected = len(remaining_connections) > 0
             
-            # 通知好友用户离线
-            await self._notify_friends_status_change(user_id, False, manager)
-            
-            print(f"[状态管理] 用户 {user_id} 已断开连接，状态已同步给好友")
+            if websocket_connected:
+                # 用户还有其他连接，保持在线状态
+                print(f"[状态管理] 用户 {user_id} 断开一个连接，但还有 {len(remaining_connections)} 个连接保持活跃")
+            else:
+                # 用户所有连接都断开，设置为离线
+                await self._update_user_status(user_id, 'offline', websocket_connected=False)
+                
+                # 通知好友用户离线
+                await self._notify_friends_status_change(user_id, False, manager)
+                
+                print(f"[状态管理] 用户 {user_id} 所有连接已断开，状态已同步给好友")
     
     async def set_user_status(self, user_id: int, status: str, manager: ConnectionManager):
         """
@@ -67,7 +75,8 @@ class UnifiedPresenceService:
         """
         async with self._sync_lock:
             is_online = status == 'online'
-            websocket_connected = manager.get(user_id) is not None
+            user_connections = manager.get_all_connections(user_id)
+            websocket_connected = len(user_connections) > 0
             
             await self._update_user_status(user_id, status, websocket_connected=websocket_connected)
             
@@ -85,7 +94,8 @@ class UnifiedPresenceService:
         用户心跳更新
         """
         current_time = datetime.utcnow()
-        websocket_connected = manager.get(user_id) is not None
+        user_connections = manager.get_all_connections(user_id)
+        websocket_connected = len(user_connections) > 0
         
         # 更新心跳时间和状态
         status = 'online' if websocket_connected else 'offline'
@@ -108,72 +118,48 @@ class UnifiedPresenceService:
         
         return {"nextHeartbeat": 30000, "status": "success"}
     
-    async def get_user_status(self, user_id: int, manager: ConnectionManager) -> Dict:
+    async def get_user_status(self, user_id: int, manager: ConnectionManager) -> dict:
         """
-        获取用户的完整状态信息
+        获取用户状态
         """
-        try:
-            # 检查WebSocket连接状态
-            websocket_connected = manager.get(user_id) is not None
-            print(f"[DEBUG] 用户 {user_id} WebSocket连接状态: {websocket_connected}")
-            print(f"[DEBUG] 连接管理器中的连接: {list(manager.active_connections.keys()) if hasattr(manager, 'active_connections') else 'N/A'}")
+        # 检查WebSocket连接状态
+        connections = manager.get_all_connections(user_id)
+        websocket_connected = len(connections) > 0
+        
+        # 从缓存获取状态
+        cached_status = self.user_status_cache.get(user_id)
+        
+        if cached_status:
+            # 更新WebSocket连接状态
+            cached_status['websocket_connected'] = websocket_connected
+            # 用户在线的条件：缓存状态为online且有WebSocket连接
+            is_online = cached_status['status'] == 'online' and websocket_connected
+        else:
+            # 从数据库加载状态
+            db_online = await self._load_user_status_from_db(user_id)
+            # 用户在线的条件：数据库状态为online且有WebSocket连接
+            is_online = db_online and websocket_connected
             
-            # 从缓存获取状态
-            cached_status = self.user_status_cache.get(user_id)
-            
-            if cached_status:
-                # 检查心跳超时
-                if cached_status['last_seen']:
-                    time_diff = datetime.utcnow() - cached_status['last_seen']
-                    is_online = websocket_connected or (time_diff.total_seconds() < self.heartbeat_timeout)
-                else:
-                    is_online = websocket_connected
-            else:
-                # 从数据库加载状态
-                is_online = await self._load_user_status_from_db(user_id)
-                is_online = is_online or websocket_connected
-            
-            # 获取用户名
-            username = await self._get_username(user_id)
-            
-            # 获取P2P能力信息
-            p2p_info = self.p2p_capabilities.get(user_id, {'supports_p2p': False, 'capabilities': []})
-            supports_p2p = p2p_info.get('supports_p2p', False)
-            print(f"[DEBUG] 用户 {user_id} P2P能力信息: {p2p_info}")
-            print(f"[DEBUG] P2P能力缓存中的所有用户: {list(self.p2p_capabilities.keys())}")
-            print(f"[DEBUG] 用户 {user_id} supports_p2p: {supports_p2p}")
-            
-            print(f"[DEBUG] 用户 {user_id} P2P能力检查: p2p_info={p2p_info}, supports_p2p={supports_p2p}")
-            
-            # 获取最后在线时间
-            last_seen = cached_status.get('last_seen') if cached_status else None
-            
-            print(f"[DEBUG] 用户 {user_id} 状态信息: online={is_online}, supportsP2P={supports_p2p}, websocket={websocket_connected}")
-            
-            return {
-                'isOnline': is_online,
-                'online': is_online,
-                'status': 'online' if is_online else 'offline',
-                'lastSeen': last_seen.isoformat() if last_seen else None,
-                'websocketConnected': websocket_connected,
-                'p2pCapability': supports_p2p,
-                'supportsP2P': supports_p2p,
-                'username': username,
-                'capabilities': p2p_info.get('capabilities', [])
-            }
-        except Exception as e:
-            print(f"[状态管理] 获取用户状态异常: {e}")
-            return {
-                'isOnline': False,
-                'online': False,
-                'status': 'offline',
-                'lastSeen': None,
-                'websocketConnected': False,
-                'p2pCapability': False,
-                'supportsP2P': False,
-                'username': f'User{user_id}',
-                'capabilities': []
-            }
+            # 更新缓存
+            await self._update_user_status(user_id, 'online' if is_online else 'offline', websocket_connected)
+            cached_status = self.user_status_cache[user_id]
+        
+        # 获取P2P能力
+        p2p_info = self.p2p_capabilities.get(user_id, {})
+        
+        result = {
+            'userId': user_id,
+            'username': await self._get_username(user_id),
+            'status': 'online' if is_online else 'offline',
+            'isOnline': is_online,
+            'lastSeen': cached_status['last_seen'].isoformat() if cached_status.get('last_seen') else None,
+            'websocketConnected': websocket_connected,
+            'p2pCapability': p2p_info.get('supports_p2p', False),
+            'p2pCapabilities': p2p_info.get('capabilities', [])
+        }
+        
+        print(f"[状态管理] 获取用户 {user_id} 状态: {result}")
+        return result
     
     async def get_contacts_status(self, user_ids: List[int], manager: ConnectionManager) -> List[Dict]:
         """
@@ -182,25 +168,27 @@ class UnifiedPresenceService:
         result = []
         
         for user_id in user_ids:
-            status_info = await self.get_user_status(user_id, manager)
-            
-            # 从数据库获取用户名
-            username = await self._get_username(user_id)
-            
-            result.append({
-                'userId': str(user_id),
-                'username': username,
-                'status': 'online' if status_info['online'] else 'offline',
-                'isOnline': status_info['online'],
-                'timestamp': datetime.utcnow().isoformat(),
-                'lastSeen': status_info['lastSeen'],
-                'websocketConnected': status_info.get('websocketConnected', False),
-                'p2pCapability': status_info['p2pCapability']
-            })
+            try:
+                status_info = await self.get_user_status(user_id, manager)
+                result.append(status_info)
+            except Exception as e:
+                print(f"[状态管理] 获取用户 {user_id} 状态失败: {e}")
+                # 添加默认状态信息
+                result.append({
+                    'userId': user_id,
+                    'username': f'User{user_id}',
+                    'status': 'offline',
+                    'isOnline': False,
+                    'lastSeen': None,
+                    'websocketConnected': False,
+                    'p2pCapability': False,
+                    'p2pCapabilities': []
+                })
         
+        print(f"[状态管理] 批量获取 {len(user_ids)} 个联系人状态完成")
         return result
     
-    async def set_p2p_capability(self, user_id: int, supports_p2p: bool, capabilities: List[str]):
+    async def set_p2p_capability(self, user_id: int, supports_p2p: bool, capabilities: List[str], manager: ConnectionManager = None):
         """
         设置用户P2P能力
         """
@@ -211,6 +199,19 @@ class UnifiedPresenceService:
         }
         
         print(f"[状态管理] 用户 {user_id} P2P能力已更新: {supports_p2p}")
+        
+        # 如果用户在线且支持P2P，通知好友状态变化
+        if manager and supports_p2p:
+            user_connections = manager.get_all_connections(user_id)
+            if len(user_connections) > 0:  # 用户在线
+                # 加载用户好友关系（如果还没有加载）
+                if user_id not in self.friends_cache:
+                    await self._load_user_friends(user_id)
+                
+                # 通知好友P2P能力变化
+                await self._notify_friends_status_change(user_id, True, manager)
+                print(f"[状态管理] 用户 {user_id} P2P能力变化已通知好友")
+        
         return True
     
     async def cleanup_expired_status(self):
@@ -237,14 +238,21 @@ class UnifiedPresenceService:
         """
         current_time = datetime.utcnow()
         
+        # 保留现有的状态信息，只更新必要字段
+        existing_status = self.user_status_cache.get(user_id, {})
+        
         self.user_status_cache[user_id] = {
             'status': status,
             'last_seen': current_time,
-            'websocket_connected': websocket_connected
+            'websocket_connected': websocket_connected,
+            # 保留其他现有信息
+            **{k: v for k, v in existing_status.items() if k not in ['status', 'last_seen', 'websocket_connected']}
         }
         
         # 同步到数据库
         await self._update_database_status(user_id, status)
+        
+        print(f"[状态管理] 用户 {user_id} 状态已更新: {status}, WebSocket连接: {websocket_connected}")
     
     async def _update_database_status(self, user_id: int, status: str):
         """
@@ -270,7 +278,7 @@ class UnifiedPresenceService:
         db = SessionLocal()
         try:
             # 查询双向好友关系
-            from db.models import Friend
+            from app.db.models import Friend
             
             friends = db.query(Friend).filter(
                 (Friend.user_id == user_id) | (Friend.friend_id == user_id)

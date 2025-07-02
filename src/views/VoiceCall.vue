@@ -124,10 +124,17 @@ const remoteAudio = ref(null);
 const localStream = ref(null);
 const peerConnection = ref(null);
 
+// 响铃音效相关
+const audioContext = ref(null);
+const ringtoneOscillator = ref(null);
+const ringtoneGain = ref(null);
+const isRingtonePlaying = ref(false);
+
 // 定时器
 let durationTimer = null;
 let waveAnimationTimer = null;
 let qualityCheckTimer = null;
+let ringtoneTimer = null;
 
 // 计算属性
 const callStatusText = computed(() => {
@@ -150,54 +157,299 @@ const isCallActive = computed(() => callStatus.value === 'active');
 
 // 生命周期
 onMounted(async () => {
+  // 初始化音频上下文
+  initializeAudioContext();
+  
   // 从路由参数获取联系人信息
   const contactId = router.currentRoute.value.params.contactId;
+  console.log('[VoiceCall] 路由参数 contactId:', contactId);
+  console.log('[VoiceCall] 当前路由:', router.currentRoute.value);
+  
   if (contactId) {
     contact.value = hybridStore.getContact(contactId);
+    console.log('[VoiceCall] 获取到的联系人信息:', contact.value);
+    console.log('[VoiceCall] 所有联系人列表:', hybridStore.getContacts());
+  } else {
+    console.error('[VoiceCall] 缺少 contactId 参数');
   }
   
   await initializeCall();
-  startTimers();
 });
 
 onUnmounted(() => {
+  stopRingtone();
   cleanup();
 });
 
 // 监听通话状态变化
 watch(callStatus, (newStatus) => {
   if (newStatus === 'active') {
-    startCallTimer();
+    stopRingtone();
   } else if (newStatus === 'ended') {
+    stopRingtone();
     cleanup();
+  } else if (newStatus === 'ringing') {
+    startRingtone();
   }
 });
+
+// 响铃音效方法
+function initializeAudioContext() {
+  try {
+    audioContext.value = new (window.AudioContext || window.webkitAudioContext)();
+    console.log('[VoiceCall] 音频上下文初始化成功');
+  } catch (error) {
+    console.error('[VoiceCall] 音频上下文初始化失败:', error);
+  }
+}
+
+function startRingtone() {
+  if (!audioContext.value || isRingtonePlaying.value) {
+    return;
+  }
+  
+  try {
+    console.log('[VoiceCall] 开始播放响铃音');
+    isRingtonePlaying.value = true;
+    
+    // 创建响铃音效的循环播放
+    const playRingtoneOnce = () => {
+      if (!isRingtonePlaying.value || !audioContext.value) {
+        return;
+      }
+      
+      // 创建振荡器和增益节点
+      const oscillator = audioContext.value.createOscillator();
+      const gainNode = audioContext.value.createGain();
+      
+      // 连接音频节点
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.value.destination);
+      
+      // 设置响铃音频参数（模拟电话铃声）
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(800, audioContext.value.currentTime);
+      oscillator.frequency.setValueAtTime(1000, audioContext.value.currentTime + 0.4);
+      
+      // 设置音量包络
+      gainNode.gain.setValueAtTime(0, audioContext.value.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.3, audioContext.value.currentTime + 0.1);
+      gainNode.gain.setValueAtTime(0.3, audioContext.value.currentTime + 0.4);
+      gainNode.gain.linearRampToValueAtTime(0, audioContext.value.currentTime + 0.8);
+      
+      // 播放响铃音
+      oscillator.start(audioContext.value.currentTime);
+      oscillator.stop(audioContext.value.currentTime + 0.8);
+      
+      // 清理振荡器
+      oscillator.onended = () => {
+        oscillator.disconnect();
+        gainNode.disconnect();
+      };
+    };
+    
+    // 立即播放第一次
+    playRingtoneOnce();
+    
+    // 设置定时器循环播放（每2秒播放一次）
+    ringtoneTimer = setInterval(() => {
+      if (isRingtonePlaying.value) {
+        playRingtoneOnce();
+      }
+    }, 2000);
+    
+  } catch (error) {
+    console.error('[VoiceCall] 播放响铃音失败:', error);
+    isRingtonePlaying.value = false;
+  }
+}
+
+function stopRingtone() {
+  if (!isRingtonePlaying.value) {
+    return;
+  }
+  
+  console.log('[VoiceCall] 停止播放响铃音');
+  isRingtonePlaying.value = false;
+  
+  // 清理定时器
+  if (ringtoneTimer) {
+    clearInterval(ringtoneTimer);
+    ringtoneTimer = null;
+  }
+  
+  // 停止当前的振荡器
+  if (ringtoneOscillator.value) {
+    try {
+      ringtoneOscillator.value.stop();
+      ringtoneOscillator.value.disconnect();
+    } catch (error) {
+      // 忽略已经停止的振荡器错误
+    }
+    ringtoneOscillator.value = null;
+  }
+  
+  if (ringtoneGain.value) {
+    try {
+      ringtoneGain.value.disconnect();
+    } catch (error) {
+      // 忽略已经断开连接的增益节点错误
+    }
+    ringtoneGain.value = null;
+  }
+}
 
 // 方法
 async function initializeCall() {
   try {
-    // 获取用户媒体权限
-    localStream.value = await navigator.mediaDevices.getUserMedia({ 
-      audio: true, 
-      video: false 
-    });
+    console.log('[VoiceCall] 开始初始化通话');
     
-    if (localAudio.value) {
-      localAudio.value.srcObject = localStream.value;
+    // 检查联系人信息是否有效
+    if (!contact.value || !contact.value.id) {
+      console.error('[VoiceCall] 联系人信息无效:', contact.value);
+      throw new Error('联系人信息无效或缺失');
     }
     
-    // 模拟连接过程
-    setTimeout(() => {
-      callStatus.value = 'ringing';
-    }, 1000);
+    console.log('[VoiceCall] 联系人信息有效:', contact.value);
     
-    setTimeout(() => {
-      callStatus.value = 'active';
-    }, 3000);
+    const hybridMessaging = hybridStore.getHybridMessaging();
+    if (!hybridMessaging) {
+      console.error('[VoiceCall] HybridMessaging服务未初始化');
+      throw new Error('消息服务未初始化，请先登录并等待服务启动');
+    }
+    
+    console.log('[VoiceCall] HybridMessaging服务已获取');
+    
+    // 检查WebSocket连接状态 - 改进的连接检查逻辑
+    let wsConnected = false;
+    let wsStatus = 'unknown';
+    
+    if (hybridMessaging.ws) {
+      wsStatus = hybridMessaging.ws.readyState;
+      wsConnected = hybridMessaging.ws.readyState === WebSocket.OPEN;
+    }
+    
+    console.log('[VoiceCall] WebSocket状态检查:', {
+      hasWs: !!hybridMessaging.ws,
+      readyState: wsStatus,
+      connected: wsConnected
+    });
+    
+    // 如果WebSocket未连接，尝试等待连接建立
+    if (!wsConnected) {
+      console.log('[VoiceCall] WebSocket未连接，尝试等待连接建立...');
+      
+      // 等待最多3秒让WebSocket连接建立
+      const maxWaitTime = 3000;
+      const startTime = Date.now();
+      
+      while (Date.now() - startTime < maxWaitTime) {
+        if (hybridMessaging.ws && hybridMessaging.ws.readyState === WebSocket.OPEN) {
+          wsConnected = true;
+          console.log('[VoiceCall] WebSocket连接已建立');
+          break;
+        }
+        
+        // 等待100ms后再次检查
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // 如果仍然未连接，抛出错误
+      if (!wsConnected) {
+        const currentState = hybridMessaging.ws?.readyState;
+        const stateText = currentState === WebSocket.CONNECTING ? '正在连接' : 
+                         currentState === WebSocket.CLOSING ? '正在关闭' : 
+                         currentState === WebSocket.CLOSED ? '已关闭' : '未知状态';
+        console.error('[VoiceCall] WebSocket连接超时，当前状态:', stateText);
+        throw new Error(`网络连接不可用 (${stateText})，请检查网络连接后重试`);
+      }
+    }
+    
+    console.log('[VoiceCall] WebSocket连接状态正常');
+    
+    // 设置语音通话回调
+    hybridMessaging.onVoiceCallStatusChanged = handleVoiceCallStatusChange;
+    hybridMessaging.onVoiceCallRejected = handleVoiceCallRejected;
+    
+    // 检查是否是接听来电还是发起通话
+    const callInfo = hybridStore.getCurrentCallInfo;
+    console.log('[VoiceCall] 当前通话信息:', callInfo);
+    
+    // 检查是否已经有活跃的语音连接（在acceptCall中已经处理过）
+    const existingConnection = hybridMessaging.voiceConnections.get(contact.value.id);
+    const currentVoiceCall = hybridMessaging.currentVoiceCall;
+    
+    if (existingConnection && currentVoiceCall && currentVoiceCall.userId.toString() === contact.value.id.toString()) {
+      // 通话已经在acceptCall中处理过，只需要设置UI状态
+      console.log('[VoiceCall] 通话已在acceptCall中处理，设置UI状态');
+      callStatus.value = 'connecting';
+      
+      // 设置本地音频流
+      if (hybridMessaging.localStream) {
+        if (localAudio.value) {
+          localAudio.value.srcObject = hybridMessaging.localStream;
+        }
+        localStream.value = hybridMessaging.localStream;
+      }
+      
+      // 检查是否已经有远程流
+      const remoteStream = hybridMessaging.remoteStreams.get(contact.value.id);
+      if (remoteStream && remoteAudio.value) {
+        remoteAudio.value.srcObject = remoteStream;
+        activateCall();
+      }
+      
+      // 根据当前通话状态设置UI
+      if (currentVoiceCall.status === 'active') {
+        activateCall();
+      } else if (currentVoiceCall.type === 'outgoing') {
+        callStatus.value = 'ringing';
+      }
+      
+    } else if (callInfo && callInfo.type === 'incoming' && callInfo.fromUserId.toString() === contact.value.id.toString()) {
+      // 这是一个新的来电，需要接听
+      console.log('[VoiceCall] 检测到新来电，开始接听');
+      callStatus.value = 'connecting';
+      try {
+        const result = await hybridMessaging.acceptVoiceCall(contact.value.id, callInfo.offer);
+        if (localAudio.value && result.localStream) {
+          localAudio.value.srcObject = result.localStream;
+          localStream.value = result.localStream;
+        }
+        console.log('[VoiceCall] 来电接听成功，等待连接建立');
+      } catch (error) {
+        console.error('[VoiceCall] 接听失败:', error);
+        throw new Error('接听通话失败');
+      }
+    } else {
+      // 发起新通话
+      console.log('[VoiceCall] 发起通话给用户:', contact.value.id);
+      callStatus.value = 'connecting';
+      const result = await hybridMessaging.initiateVoiceCall(contact.value.id);
+      if (localAudio.value && result.localStream) {
+        localAudio.value.srcObject = result.localStream;
+        localStream.value = result.localStream;
+      }
+      callStatus.value = 'ringing';
+      console.log('[VoiceCall] 通话发起成功');
+    }
     
   } catch (error) {
-    console.error('初始化通话失败:', error);
-    alert('无法访问麦克风，请检查权限设置');
+    console.error('[VoiceCall] 初始化通话失败:', error);
+    
+    // 根据错误类型提供更具体的错误信息
+    let errorMessage = '通话初始化失败';
+    if (error.message.includes('WebSocket') || error.message.includes('网络')) {
+      errorMessage = '网络连接异常，请检查网络后重试';
+    } else if (error.message.includes('消息服务')) {
+      errorMessage = '服务未就绪，请稍后重试';
+    } else if (error.message.includes('联系人')) {
+      errorMessage = '联系人信息异常，请返回重新选择';
+    } else {
+      errorMessage = `通话初始化失败: ${error.message}`;
+    }
+    
+    alert(errorMessage);
     endCall();
   }
 }
@@ -231,9 +483,80 @@ function startCallTimer() {
   }, 1000);
 }
 
+// 处理语音通话状态变化
+function handleVoiceCallStatusChange(event) {
+  console.log('[语音通话] 状态变化:', event);
+  
+  switch (event.type) {
+    case 'remote_stream_received':
+      if (remoteAudio.value && event.stream) {
+        remoteAudio.value.srcObject = event.stream;
+        activateCall();
+        console.log('[语音通话] 远程音频流已接收，通话已激活');
+      }
+      break;
+      
+    case 'call_connected':
+      activateCall();
+      console.log('[语音通话] 通话已连接');
+      break;
+      
+    case 'call_accepted':
+      console.log('[语音通话] 通话已被接受');
+      break;
+      
+    case 'call_rejected':
+      alert('对方拒绝了通话');
+      // 设置状态但不调用endCall，避免递归
+      callStatus.value = 'rejected';
+      cleanup();
+      router.push('/chat');
+      break;
+      
+    case 'call_ended':
+      // 设置状态但不调用endCall，避免递归
+      callStatus.value = 'ended';
+      cleanup();
+      router.push('/chat');
+      break;
+      
+    case 'connection_state_changed':
+      if (event.state === 'connected') {
+        activateCall();
+        console.log('[语音通话] 连接状态变为已连接');
+      } else if (event.state === 'failed' || event.state === 'disconnected') {
+        console.log('[语音通话] 连接失败或断开:', event.state);
+        // 设置状态但不调用endCall，避免递归
+        callStatus.value = 'ended';
+        cleanup();
+        router.push('/chat');
+      }
+      break;
+  }
+}
+
+// 激活通话状态
+function activateCall() {
+  if (callStatus.value !== 'active') {
+    callStatus.value = 'active';
+    startTimers(); // 在此处启动UI计时器
+    startCallTimer(); // 在此处启动通话时长计时器
+    // 通话成功建立后，清理来电信息
+    const callInfo = hybridStore.getCurrentCallInfo;
+    if (callInfo && callInfo.type === 'incoming') {
+      console.log('[VoiceCall] 通话已建立，清理来电信息');
+      hybridStore.clearCurrentCallInfo();
+    }
+  }
+}
+
 function toggleMute() {
-  isMuted.value = !isMuted.value;
-  if (localStream.value) {
+  const hybridMessaging = hybridStore.getHybridMessaging();
+  if (hybridMessaging) {
+    const muted = hybridMessaging.toggleMute();
+    isMuted.value = muted;
+  } else if (localStream.value) {
+    isMuted.value = !isMuted.value;
     localStream.value.getAudioTracks().forEach(track => {
       track.enabled = !isMuted.value;
     });
@@ -251,12 +574,39 @@ function minimizeCall() {
 }
 
 function endCall() {
+  // 防止重复调用导致递归
+  if (callStatus.value === 'ended') {
+    console.log('[VoiceCall] 通话已结束，跳过重复调用');
+    return;
+  }
+  
+  const hybridMessaging = hybridStore.getHybridMessaging();
+  if (hybridMessaging && contact.value) {
+    hybridMessaging.endVoiceCall(contact.value.id);
+  }
+  
   callStatus.value = 'ended';
   cleanup();
   router.push('/chat');
 }
 
+function handleVoiceCallRejected({ fromUserId }) {
+  if (contact.value && fromUserId.toString() === contact.value.id.toString()) {
+    console.log(`[语音通话] ${contact.value.username} 拒绝了通话`);
+    callStatus.value = 'rejected';
+    // 延迟一会自动关闭
+    setTimeout(() => {
+      endCall();
+    }, 2000);
+  }
+}
+
 function cleanup() {
+  console.log('[VoiceCall] 开始清理资源');
+  
+  // 停止响铃音效
+  stopRingtone();
+  
   // 清理定时器
   if (durationTimer) {
     clearInterval(durationTimer);
@@ -270,6 +620,20 @@ function cleanup() {
     clearInterval(qualityCheckTimer);
     qualityCheckTimer = null;
   }
+  if (ringtoneTimer) {
+    clearInterval(ringtoneTimer);
+    ringtoneTimer = null;
+  }
+  
+  // 先清理语音通话回调，防止在清理过程中触发新的状态变化
+  const hybridMessaging = hybridStore.getHybridMessaging();
+  if (hybridMessaging) {
+    hybridMessaging.onVoiceCallStatusChanged = null;
+    console.log('[VoiceCall] 已清理状态变化回调');
+  }
+  
+  // 清理通话信息
+  hybridStore.clearCurrentCallInfo();
   
   // 停止媒体流
   if (localStream.value) {
@@ -282,6 +646,18 @@ function cleanup() {
     peerConnection.value.close();
     peerConnection.value = null;
   }
+  
+  // 关闭音频上下文
+  if (audioContext.value) {
+    try {
+      audioContext.value.close();
+      audioContext.value = null;
+    } catch (error) {
+      console.error('[VoiceCall] 关闭音频上下文失败:', error);
+    }
+  }
+  
+  console.log('[VoiceCall] 资源清理完成');
 }
 
 function formatDuration(seconds) {
