@@ -73,6 +73,9 @@
           <div class="setting-item">
             <button @click="exportKeys" class="action-btn">导出公钥</button>
           </div>
+          <div class="setting-item">
+            <button @click="openSteganography" class="action-btn steganography-btn">🔒 图像隐写术工具</button>
+          </div>
         </div>
 
         <!-- 保存按钮 -->
@@ -147,6 +150,10 @@ function loadSettings() {
   }
 }
 
+function openSteganography() {
+  router.push('/steganography');
+}
+
 function saveSettings() {
   const settings = {
     connection: connectionSettings,
@@ -181,7 +188,7 @@ function exportKeys() {
   console.log('导出公钥');
 }
 
-function loadMockData() {
+async function loadMockData() {
   // 模拟用户数据
   const mockUser = {
     id: 'dev-user-001',
@@ -189,8 +196,8 @@ function loadMockData() {
     email: 'dev@example.com'
   };
   
-  // 设置模拟用户到store
-  hybridStore.setUser(mockUser, 'dev-mock-token');
+  // 设置模拟用户到store（异步方法）
+  await hybridStore.setUser(mockUser, 'dev-mock-token');
   
   console.log('开发模式：Settings模拟数据加载完成');
 }
@@ -318,6 +325,19 @@ function goBack() {
   background: #e9ecef;
 }
 
+.steganography-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  font-weight: 500;
+}
+
+.steganography-btn:hover {
+  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
 .settings-actions {
   display: flex;
   gap: 1rem;
@@ -370,4 +390,4 @@ function goBack() {
     flex-direction: column;
   }
 }
-</style> 
+</style>

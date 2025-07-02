@@ -48,8 +48,10 @@ def set_p2p_capability(user_id: int, supports_p2p: bool, capabilities: list):
     }
     return True
 
-def get_user_status(user_id: int):
+def get_user_status(user_id: int, manager):
     """获取用户的完整状态信息"""
+
+    
     db = SessionLocal()
     user = db.query(User).filter(User.id == user_id).first()
     
@@ -57,11 +59,17 @@ def get_user_status(user_id: int):
         db.close()
         return {'online': False, 'supportsP2P': False, 'lastSeen': None}
     
-    # 判断用户是否在线（最近5分钟内有活动）
-    is_online = False
-    if user.last_seen:
+    # 首先检查WebSocket连接状态（实时在线状态）
+
+    is_websocket_connected = manager.get(user_id) is not None
+    
+    # 如果WebSocket连接存在，用户肯定在线
+    is_online = is_websocket_connected
+    
+    # 如果没有WebSocket连接，检查最近活动时间（最近2分钟内有活动认为在线）
+    if not is_online and user.last_seen:
         time_diff = datetime.utcnow() - user.last_seen
-        is_online = time_diff.total_seconds() < 300  # 5分钟
+        is_online = time_diff.total_seconds() < 120  # 2分钟
     
     # 获取P2P能力
     p2p_info = p2p_capabilities.get(user_id, {'supportsP2P': False})
@@ -69,7 +77,8 @@ def get_user_status(user_id: int):
     result = {
         'online': is_online,
         'supportsP2P': p2p_info.get('supportsP2P', False),
-        'lastSeen': user.last_seen.isoformat() if user.last_seen else None
+        'lastSeen': user.last_seen.isoformat() if user.last_seen else None,
+        'websocketConnected': is_websocket_connected
     }
     
     db.close()

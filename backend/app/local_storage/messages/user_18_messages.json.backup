@@ -1,0 +1,173 @@
+[
+  {
+    "id": 1,
+    "from": 19,
+    "to": 18,
+    "content": "你好",
+    "timestamp": "2025-07-01T17:43:01.678Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 2,
+    "from": 19,
+    "to": 18,
+    "content": "n年后",
+    "timestamp": "2025-07-01T17:44:39.466Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 3,
+    "from": 18,
+    "to": 19,
+    "content": "你好3",
+    "timestamp": "2025-07-01T17:47:56.894Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 4,
+    "from": 18,
+    "to": 19,
+    "content": "你好3",
+    "timestamp": "2025-07-01T17:47:56.894Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 5,
+    "from": 19,
+    "to": 18,
+    "content": "你好4",
+    "timestamp": "2025-07-01T17:48:01.591Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 6,
+    "from": 18,
+    "to": 19,
+    "content": "你好1111",
+    "timestamp": "2025-07-01T17:51:58.579Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 7,
+    "from": 18,
+    "to": 19,
+    "content": "你好1111",
+    "timestamp": "2025-07-01T17:51:58.579Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 8,
+    "from": 19,
+    "to": 18,
+    "content": "你好哦哦哦",
+    "timestamp": "2025-07-01T17:52:04.077Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 9,
+    "from": 19,
+    "to": 18,
+    "content": "你不许好",
+    "timestamp": "2025-07-01T17:52:15.878Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 10,
+    "from": 18,
+    "to": 19,
+    "content": "你好年后",
+    "timestamp": "2025-07-01T18:01:08.191229",
+    "method": "Server",
+    "encrypted": false
+  },
+  {
+    "id": 11,
+    "from": 18,
+    "to": 19,
+    "content": "你好年后",
+    "timestamp": "2025-07-01T18:01:08.191229",
+    "method": "Server",
+    "encrypted": false
+  },
+  {
+    "id": 12,
+    "from": 18,
+    "to": 19,
+    "content": "啊？又坏了？",
+    "timestamp": "2025-07-01T18:01:20.559240",
+    "method": "Server",
+    "encrypted": false
+  },
+  {
+    "id": 13,
+    "from": 18,
+    "to": 19,
+    "content": "啊？又坏了？",
+    "timestamp": "2025-07-01T18:01:20.559240",
+    "method": "Server",
+    "encrypted": false
+  },
+  {
+    "id": 14,
+    "from": 19,
+    "to": 18,
+    "content": "test",
+    "timestamp": "2025-07-01T18:03:42.933Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 15,
+    "from": 19,
+    "to": 18,
+    "content": "啊啊",
+    "timestamp": "2025-07-01T18:03:57.801Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 16,
+    "from": 20,
+    "to": 18,
+    "content": "啊啊",
+    "timestamp": "2025-07-01T18:04:03.585Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 17,
+    "from": 18,
+    "to": 19,
+    "content": "啊啊",
+    "timestamp": "2025-07-01T18:04:15.525Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 18,
+    "from": 18,
+    "to": 19,
+    "content": "啊啊",
+    "timestamp": "2025-07-01T18:04:15.525Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 19,
+    "from": 19,
+    "to": 18,
+    "content": "这个是半夜测试搜索历史记录用的",
+    "timestamp": "2025-07-01T18:32:31.524Z",
+    "method": "P2P",
+    "encrypted": false
+  }
+]

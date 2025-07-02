@@ -79,9 +79,11 @@ export const messageAPI = {
   // 发送消息
   sendMessage: (messageData) => api.post('/messages', messageData),
   
+  // 获取消息
+  getMessages: (params) => api.get('/messages', { params }),
+  
   // 获取消息历史
-  getMessageHistory: (userId, page = 1, limit = 50) => 
-    api.get(`/messages/history/${userId}?page=${page}&limit=${limit}`)
+  getMessageHistory: (userId, params) => api.get(`/messages/history/${userId}`, { params })
 };
 
 // 密钥管理API
@@ -123,7 +125,30 @@ export const presenceAPI = {
   getContactsStatus: () => api.get('/presence/contacts'),
   
   // 心跳保持在线
-  heartbeat: () => api.post('/presence/heartbeat')
+  heartbeat: () => api.post('/presence/heartbeat'),
+  
+  // 注册P2P能力
+  registerP2PCapability: (capabilities) => api.post('/presence/register_p2p', capabilities),
+  
+  // 获取用户状态
+  getUserStatus: (userId) => api.get(`/users/${userId}/status`)
+};
+
+// 上传API
+const uploadAPI = {
+  uploadAvatar: (file) => {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    return api.post('/upload/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+  
+  uploadImage: (formData) => {
+    return api.post('/upload/image', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  }
 };
 
 // 组合所有API模块
@@ -157,7 +182,13 @@ export const hybridApi = {
   // 在线状态
   setOnlineStatus: presenceAPI.setOnlineStatus,
   getContactsStatus: presenceAPI.getContactsStatus,
-  heartbeat: presenceAPI.heartbeat
+  heartbeat: presenceAPI.heartbeat,
+  registerP2PCapability: presenceAPI.registerP2PCapability,
+  getUserStatus: presenceAPI.getUserStatus,
+  
+  // 上传
+  uploadAvatar: uploadAPI.uploadAvatar,
+  uploadImage: uploadAPI.uploadImage
 };
 
 export default api;

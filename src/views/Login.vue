@@ -151,16 +151,13 @@ async function handleLogin() {
       password: loginForm.password
     });
 
-    // 设置用户信息到store
-    const setUserSuccess = hybridStore.setUser(response.data.data.user, response.data.data.token);
+    // 设置用户信息到store（现在是异步方法）
+    const setUserSuccess = await hybridStore.setUser(response.data.data.user, response.data.data.token);
     
     if (!setUserSuccess) {
       errorMessage.value = '用户信息设置失败，请重试';
       return;
     }
-
-    // 等待状态更新完成后再跳转
-    await new Promise(resolve => setTimeout(resolve, 100));
     
     // 验证用户信息是否正确设置
     if (!hybridStore.user || !hybridStore.user.id) {

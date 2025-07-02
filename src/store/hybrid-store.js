@@ -69,7 +69,7 @@ export const hybridStore = {
   },
 
   // 设置用户信息
-  setUser(user, token) {
+  async setUser(user, token) {
     // 验证输入参数 - 后端返回的用户对象使用 userId 字段
     const userId = user?.id || user?.userId;
     if (!user || !userId || !token) {
@@ -93,6 +93,18 @@ export const hybridStore = {
       localStorage.setItem('token', token);
       
       console.log('用户信息设置成功:', { userId: normalizedUser.id, username: normalizedUser.username });
+      
+      // 登录成功后初始化本地数据库
+      try {
+        console.log('📦 正在初始化本地数据库...');
+        const { initDatabase } = await import('../client_db/database.js');
+        await initDatabase();
+        console.log('✅ 本地数据库初始化完成');
+      } catch (dbError) {
+        console.error('❌ 本地数据库初始化失败:', dbError);
+        console.log('⚠️ 应用将在没有本地数据库的情况下运行');
+      }
+      
       return true;
     } catch (error) {
       console.error('设置用户信息失败:', error);
@@ -256,14 +268,20 @@ export const hybridStore = {
     // 检查是否已存在相同ID的消息，避免重复添加
     const existingIndex = conversation.messages.findIndex(m => m.id === message.id);
     if (existingIndex !== -1) {
-      // 更新现有消息
-      conversation.messages[existingIndex] = { ...message };
+      // 更新现有消息 - 使用splice确保触发响应式更新
+      conversation.messages.splice(existingIndex, 1, { ...message });
     } else {
-      // 添加新消息
-      conversation.messages.push({ ...message });
+      // 添加新消息 - 创建新数组确保触发响应式更新
+      conversation.messages = [...conversation.messages, { ...message }];
     }
     
     conversation.lastMessage = { ...message };
+    
+    // 更新联系人的最后一条消息
+    const contact = state.contacts.find(c => c.id === userId);
+    if (contact) {
+      contact.lastMessage = { ...message };
+    }
     
     console.log(`已添加消息到用户${userId}的对话:`, message);
     console.log(`当前对话消息数量:`, conversation.messages.length);
@@ -305,7 +323,13 @@ export const hybridStore = {
 
   // 获取对话消息
   getMessages(userId) {
-    return state.conversations[userId]?.messages || [];
+    if (!state.conversations[userId]) {
+      state.conversations[userId] = {
+        messages: [],
+        lastMessage: {}
+      };
+    }
+    return state.conversations[userId].messages;
   },
 
   // 获取联系人信息
@@ -324,17 +348,24 @@ export const hybridStore = {
   },
 
   // 更新在线状态
-  updateOnlineStatus(userId, isOnline) {
+  updateOnlineStatus(userId, isOnline, timestamp = null) {
+    // 确保userId是数字类型
+    const numericUserId = parseInt(userId);
+    
     if (isOnline) {
-      state.onlineUsers.add(userId);
+      state.onlineUsers.add(numericUserId);
     } else {
-      state.onlineUsers.delete(userId);
+      state.onlineUsers.delete(numericUserId);
     }
     
     // 更新联系人在线状态
-    const contact = state.contacts.find(c => c.id === userId);
+    const contact = state.contacts.find(c => parseInt(c.id) === numericUserId);
     if (contact) {
       contact.online = isOnline;
+      if (timestamp) {
+        contact.lastSeen = timestamp;
+      }
+      console.log(`已更新用户 ${numericUserId} 的在线状态: ${isOnline ? '在线' : '离线'}`);
     }
   },
 
@@ -392,12 +423,63 @@ export const hybridStore = {
     
     // 设置消息接收回调
     if (hybridMessaging) {
-      hybridMessaging.onMessageReceived = (message) => {
-        this.handleReceivedMessage(message);
+      hybridMessaging.onMessageReceived = async (message) => {
+        await this.handleReceivedMessage(message);
       };
       
-      hybridMessaging.onUserStatusChanged = (userId, status) => {
-        this.updateOnlineStatus(userId, status === 'online');
+      hybridMessaging.onUserStatusChanged = (data) => {
+        console.log('Store收到用户状态变化:', data);
+        
+        // 验证数据有效性
+        if (!data || typeof data !== 'object') {
+          console.warn('收到无效的用户状态变化数据:', data);
+          return;
+        }
+        
+        // 验证userId
+        const userId = parseInt(data.userId);
+        if (!userId || userId <= 0) {
+          console.warn('收到无效的用户ID:', data.userId);
+          return;
+        }
+        
+        // 验证status
+        if (!data.status || typeof data.status !== 'string') {
+          console.warn('收到无效的用户状态:', data.status);
+          return;
+        }
+        
+        // 处理新格式的presence消息
+        const isOnline = data.isOnline !== undefined ? data.isOnline : (data.status === 'online');
+        const timestamp = data.timestamp;
+        const websocketConnected = data.websocketConnected;
+        const p2pCapability = data.p2pCapability;
+        
+        // 更新在线状态
+        this.updateOnlineStatus(userId, isOnline, timestamp);
+        
+        // 如果有P2P能力信息，更新P2P状态
+        if (p2pCapability !== undefined) {
+          this.updateP2PConnection(userId, p2pCapability ? 'available' : 'unavailable');
+        }
+        
+        // 状态变化已处理
+      };
+      
+      // 设置P2P连接状态变化回调
+      hybridMessaging.onP2PStatusChanged = (userId, status) => {
+        this.updateP2PConnection(userId, status);
+        
+        // 更新联系人的连接状态
+        const contact = state.contacts.find(c => c.id === userId);
+        if (contact) {
+          contact.connectionStatus = {
+            ...contact.connectionStatus,
+            canUseP2P: status === 'connected',
+            preferredMethod: status === 'connected' ? 'P2P' : 'Server',
+            p2pStatus: status
+          };
+        }
       };
     }
   },
@@ -407,19 +489,53 @@ export const hybridStore = {
   },
 
   // 处理接收到的消息
-  handleReceivedMessage(message) {
+  async handleReceivedMessage(message) {
+    // 生成唯一的消息ID，避免重复
+    const messageId = message.id || `msg_${message.from}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
     const messageObj = {
-      id: Date.now() + Math.random(),
+      id: messageId,
       from: message.from,
       to: state.user?.id,
       content: message.content,
-      timestamp: message.timestamp,
+      timestamp: message.timestamp || new Date().toISOString(),
       method: message.method || 'Server',
-      encrypted: false
+      encrypted: false,
+      // 添加图片消息支持
+      messageType: message.messageType || message.message_type || 'text',
+      filePath: message.filePath || message.file_path || null,
+      fileName: message.fileName || message.file_name || null,
+      imageUrl: message.imageUrl || null
     };
     
-    // 添加到对话记录
+    console.log('Store处理接收到的消息:', messageObj);
+    
+    // 立即添加到对话记录（UI显示）
     this.addMessage(message.from, messageObj);
+    
+    // 异步保存到本地数据库
+    try {
+      // 动态导入数据库函数
+      const { addMessage } = await import('../client_db/database.js');
+      
+      // 构造数据库消息对象
+      const dbMessage = {
+        from: message.from,
+        to: state.user?.id,
+        content: message.content,
+        timestamp: message.timestamp || new Date().toISOString(),
+        method: message.method || 'Server',
+        messageType: message.messageType || message.message_type || 'text',
+        filePath: message.filePath || message.file_path || null,
+        fileName: message.fileName || message.file_name || null,
+        imageUrl: message.imageUrl || null
+      };
+      
+      await addMessage(dbMessage);
+      console.log('接收到的消息已保存到本地数据库');
+    } catch (dbError) {
+      console.warn('保存接收消息到本地数据库失败:', dbError);
+    }
     
     // 更新消息统计
     state.messageStats.totalReceived++;
@@ -428,6 +544,8 @@ export const hybridStore = {
     } else {
       state.messageStats.serverReceived++;
     }
+    
+    console.log(`消息已添加到用户${message.from}的对话，当前消息总数:`, this.getMessages(message.from).length);
   },
 
   // 初始化HybridMessaging服务

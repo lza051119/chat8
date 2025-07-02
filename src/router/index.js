@@ -32,6 +32,11 @@ const routes = [
     component: () => import('../views/VoiceCall.vue')
   },
   {
+    path: '/steganography',
+    name: 'Steganography',
+    component: () => import('../views/Steganography.vue')
+  },
+  {
     path: '/dev/chat',
     component: () => import('../views/HybridChatMain.vue')
   },

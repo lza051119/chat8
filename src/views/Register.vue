@@ -178,8 +178,8 @@ async function handleRegister() {
       password: registerForm.password
     });
 
-    // 注册成功，设置用户信息
-    hybridStore.setUser(response.data.user, response.data.token);
+    // 注册成功，设置用户信息（异步方法）
+    await hybridStore.setUser(response.data.user, response.data.token);
 
     // 跳转到聊天页面
     router.push('/chat');
@@ -467,4 +467,4 @@ async function handleRegister() {
     font-size: 1.5rem;
   }
 }
-</style> 
+</style>

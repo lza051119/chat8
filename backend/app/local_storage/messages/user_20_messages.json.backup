@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "from": 20,
+    "to": 18,
+    "content": "啊啊",
+    "timestamp": "2025-07-01T18:04:03.585Z",
+    "method": "P2P",
+    "encrypted": false
+  },
+  {
+    "id": 2,
+    "from": 20,
+    "to": 18,
+    "content": "啊啊",
+    "timestamp": "2025-07-01T18:04:03.585Z",
+    "method": "P2P",
+    "encrypted": false
+  }
+]

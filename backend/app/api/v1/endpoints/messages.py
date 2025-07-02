@@ -25,13 +25,17 @@ def send_message(msg: MessageCreate, current_user: UserOut = Depends(get_current
         content=msg.content,
         encrypted=msg.encrypted,
         method=msg.method,
-        destroy_after=msg.destroy_after
+        destroy_after=msg.destroy_after,
+        message_type=msg.message_type,
+        file_path=msg.file_path,
+        file_name=msg.file_name,
+        hidding_message=msg.hidding_message
     )
 
 @router.get("/messages/history/{peer_id}")
 def get_history(peer_id: int, page: int = 1, limit: int = 50, current_user: UserOut = Depends(get_current_user), db: Session = Depends(get_db)):
     result = message_service.get_message_history(db, int(current_user.id), peer_id, page, limit)
-    return {"success": True, "data": result}
+    return result
 
 @router.delete("/messages/{message_id}")
 def delete_message(message_id: int, current_user: UserOut = Depends(get_current_user), db: Session = Depends(get_db)):

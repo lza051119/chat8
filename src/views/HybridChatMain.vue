@@ -307,14 +307,23 @@ onUnmounted(() => {
 // 方法
 async function initializeMessaging() {
   try {
+    // 首先重新初始化数据库（用户登录后才有token）
+    console.log('🔄 用户登录后重新初始化本地数据库...');
+    try {
+      const { initDatabase } = await import('../client_db/database.js');
+      await initDatabase();
+      console.log('✅ 本地数据库重新初始化成功');
+    } catch (dbError) {
+      console.warn('⚠️ 本地数据库初始化失败，但继续启动消息系统:', dbError);
+    }
+    
     // 使用hybrid-store的初始化方法
     const success = await hybridStore.initializeHybridMessaging();
     
     if (success) {
       messaging.value = hybridStore.getHybridMessaging();
       
-      // 设置用户在线状态
-      await hybridApi.setOnlineStatus('online');
+      console.log('[状态同步] 混合消息系统初始化成功，WebSocket已自动发送在线状态');
       
       // 开始定期更新在线状态
       startStatusHeartbeat();
@@ -325,7 +334,7 @@ async function initializeMessaging() {
       // 加载所有联系人的消息历史
       await loadAllMessageHistory();
       
-      console.log('混合消息系统初始化完成');
+      console.log('混合消息系统初始化完成，在线状态已同步给好友');
     } else {
       throw new Error('HybridMessaging初始化失败');
     }
@@ -340,9 +349,26 @@ function setupConnectionNotifications() {
   // 这里可以添加更多的连接状态监听逻辑
 }
 
-function handleContactSelected(contact) {
+async function handleContactSelected(contact) {
   selectedContact.value = contact;
   hybridStore.setCurrentContact(contact);
+  
+  // 尝试预连接到选中的联系人
+  if (messaging.value && contact && contact.id) {
+    try {
+      const preConnectResult = await messaging.value.preConnectToUser(contact.id);
+      
+      if (preConnectResult.success) {
+        if (!preConnectResult.existing) {
+          showNotification(`与 ${contact.username} 的P2P连接已建立`, 'success', '🔗');
+        }
+      } else {
+        // P2P预连接失败，将使用服务器转发
+      }
+    } catch (error) {
+      console.warn(`[聊天窗口] 预连接到联系人 ${contact.username} 时发生错误:`, error);
+    }
+  }
 }
 
 function handleUserStatusChange(userId, status) {
@@ -401,19 +427,32 @@ async function updateContactsOnlineStatus() {
 async function loadAllMessageHistory() {
   try {
     const contacts = hybridStore.contacts;
-    console.log('开始加载所有联系人的消息历史，联系人数量:', contacts.length);
+    console.log('开始从本地数据库加载所有联系人的消息历史，联系人数量:', contacts.length);
+    
+    // 动态导入数据库函数
+    const { getMessagesWithFriend } = await import('../client_db/database.js');
     
     // 并发加载所有联系人的消息历史
     const loadPromises = contacts.map(async (contact) => {
       try {
-        const response = await hybridApi.getMessageHistory(contact.id);
-        if (response.data && response.data.success) {
-          const messages = response.data.data.items || [];
-          hybridStore.setMessages(contact.id, messages);
-          console.log(`已加载联系人 ${contact.username} 的消息历史，共 ${messages.length} 条`);
+        const result = await getMessagesWithFriend(contact.id, { limit: 50, offset: 0 });
+        if (result && result.messages) {
+          hybridStore.setMessages(contact.id, result.messages);
+          console.log(`已从本地数据库加载联系人 ${contact.username} 的消息历史，共 ${result.messages.length} 条`);
         }
       } catch (error) {
-        console.error(`加载联系人 ${contact.username} 的消息历史失败:`, error);
+        console.error(`从本地数据库加载联系人 ${contact.username} 的消息历史失败:`, error);
+        // 如果本地数据库加载失败，尝试从服务器加载
+        try {
+          const response = await hybridApi.getMessageHistory(contact.id);
+          if (response.data && response.data.messages) {
+            const messages = response.data.messages || [];
+            hybridStore.setMessages(contact.id, messages);
+            console.log(`已从服务器加载联系人 ${contact.username} 的消息历史，共 ${messages.length} 条`);
+          }
+        } catch (serverError) {
+          console.error(`从服务器加载联系人 ${contact.username} 的消息历史也失败:`, serverError);
+        }
       }
     });
     
@@ -488,9 +527,12 @@ async function logout() {
   try {
     console.log('开始退出登录...');
     
-    // 1. 设置用户离线状态
+    console.log('[状态同步] 用户退出，发送离线状态给所有好友');
+    
+    // 1. 设置用户离线状态（这会通知所有好友）
     try {
       await hybridApi.setOnlineStatus('offline');
+      console.log('[状态同步] 离线状态已同步给好友');
     } catch (statusError) {
       console.warn('设置离线状态失败:', statusError);
     }

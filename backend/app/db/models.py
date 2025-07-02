@@ -37,10 +37,14 @@ class Message(Base):
     from_id = Column(Integer, ForeignKey('users.id'))
     to_id = Column(Integer, ForeignKey('users.id'))
     content = Column(Text, nullable=False)
+    message_type = Column(String(16), default='text')  # text, image
+    file_path = Column(String(512), nullable=True)  # 图片文件路径
+    file_name = Column(String(256), nullable=True)  # 原始文件名
     encrypted = Column(Boolean, default=True)
     method = Column(String(16), default='Server')
     timestamp = Column(DateTime, default=datetime.utcnow)
     destroy_after = Column(Integer, nullable=True)  # 阅后即焚秒数
+    hidding_message = Column(Text, nullable=True)  # 隐藏在图片中的消息
 
 class Key(Base):
     __tablename__ = 'keys'

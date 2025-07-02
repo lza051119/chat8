@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>统一状态管理系统测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .status-panel {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .user-status {
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        .online { background-color: #e8f5e8; border-color: #4caf50; }
+        .offline { background-color: #ffe8e8; border-color: #f44336; }
+        .button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .button:hover { background-color: #0056b3; }
+        .button:disabled { background-color: #ccc; cursor: not-allowed; }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .error { color: #dc3545; }
+        .success { color: #28a745; }
+        .info { color: #17a2b8; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>统一状态管理系统测试</h1>
+        
+        <div class="status-panel">
+            <div>
+                <h3>连接控制</h3>
+                <button class="button" onclick="login()">登录用户1</button>
+                <button class="button" onclick="login2()">登录用户2</button>
+                <button class="button" onclick="connectWebSocket()">连接WebSocket</button>
+                <button class="button" onclick="disconnectWebSocket()">断开WebSocket</button>
+                
+                <h3>状态操作</h3>
+                <button class="button" onclick="setOnlineStatus()">设置在线</button>
+                <button class="button" onclick="setOfflineStatus()">设置离线</button>
+                <button class="button" onclick="sendHeartbeat()">发送心跳</button>
+                <button class="button" onclick="getContactsStatus()">获取联系人状态</button>
+                
+                <h3>P2P操作</h3>
+                <button class="button" onclick="registerP2P()">注册P2P能力</button>
+                <button class="button" onclick="getUserStatus()">获取用户状态</button>
+            </div>
+            
+            <div>
+                <h3>当前状态</h3>
+                <div id="currentStatus" class="user-status">
+                    <strong>当前用户:</strong> <span id="currentUser">未登录</span><br>
+                    <strong>WebSocket:</strong> <span id="wsStatus">未连接</span><br>
+                    <strong>在线状态:</strong> <span id="onlineStatus">离线</span><br>
+                    <strong>P2P能力:</strong> <span id="p2pStatus">未知</span>
+                </div>
+                
+                <h3>好友状态</h3>
+                <div id="friendsStatus"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h3>实时日志</h3>
+        <div id="log" class="log"></div>
+        <button class="button" onclick="clearLog()">清空日志</button>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:8000/api';
+        let currentToken = null;
+        let currentUserId = null;
+        let websocket = null;
+        
+        // 日志函数
+        function log(message, type = 'info') {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            logElement.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        // 更新UI状态
+        function updateUI() {
+            document.getElementById('currentUser').textContent = currentUserId ? `用户${currentUserId}` : '未登录';
+            document.getElementById('wsStatus').textContent = websocket && websocket.readyState === WebSocket.OPEN ? '已连接' : '未连接';
+        }
+        
+        // 登录用户1
+        async function login() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: 'test1', password: 'password123' })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    currentToken = data.access_token;
+                    currentUserId = data.user.id;
+                    log(`用户1登录成功，ID: ${currentUserId}`, 'success');
+                    updateUI();
+                } else {
+                    log('用户1登录失败', 'error');
+                }
+            } catch (error) {
+                log(`登录错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 登录用户2
+        async function login2() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: 'test2', password: 'password123' })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    currentToken = data.access_token;
+                    currentUserId = data.user.id;
+                    log(`用户2登录成功，ID: ${currentUserId}`, 'success');
+                    updateUI();
+                } else {
+                    log('用户2登录失败', 'error');
+                }
+            } catch (error) {
+                log(`登录错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 连接WebSocket
+        function connectWebSocket() {
+            if (!currentToken || !currentUserId) {
+                log('请先登录', 'error');
+                return;
+            }
+            
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                log('WebSocket已连接', 'info');
+                return;
+            }
+            
+            websocket = new WebSocket(`ws://localhost:8000/ws/${currentUserId}?token=${currentToken}`);
+            
+            websocket.onopen = () => {
+                log('WebSocket连接成功', 'success');
+                updateUI();
+            };
+            
+            websocket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                log(`收到WebSocket消息: ${JSON.stringify(data)}`, 'info');
+                
+                if (data.type === 'presence') {
+                    handlePresenceUpdate(data);
+                }
+            };
+            
+            websocket.onclose = () => {
+                log('WebSocket连接关闭', 'info');
+                updateUI();
+            };
+            
+            websocket.onerror = (error) => {
+                log(`WebSocket错误: ${error}`, 'error');
+            };
+        }
+        
+        // 断开WebSocket
+        function disconnectWebSocket() {
+            if (websocket) {
+                websocket.close();
+                websocket = null;
+                updateUI();
+                log('WebSocket已断开', 'info');
+            }
+        }
+        
+        // 设置在线状态
+        async function setOnlineStatus() {
+            if (!currentToken) {
+                log('请先登录', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/set_status`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ status: 'online' })
+                });
+                
+                if (response.ok) {
+                    log('在线状态设置成功', 'success');
+                    document.getElementById('onlineStatus').textContent = '在线';
+                } else {
+                    log('设置在线状态失败', 'error');
+                }
+            } catch (error) {
+                log(`设置状态错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 设置离线状态
+        async function setOfflineStatus() {
+            if (!currentToken) {
+                log('请先登录', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/set_status`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ status: 'offline' })
+                });
+                
+                if (response.ok) {
+                    log('离线状态设置成功', 'success');
+                    document.getElementById('onlineStatus').textContent = '离线';
+                } else {
+                    log('设置离线状态失败', 'error');
+                }
+            } catch (error) {
+                log(`设置状态错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 发送心跳
+        async function sendHeartbeat() {
+            if (!currentToken) {
+                log('请先登录', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/presence/heartbeat`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (response.ok) {
+                    log('心跳发送成功', 'success');
+                } else {
+                    log('心跳发送失败', 'error');
+                }
+            } catch (error) {
+                log(`心跳错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 获取联系人状态
+        async function getContactsStatus() {
+            if (!currentToken) {
+                log('请先登录', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/presence/contacts`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log(`联系人状态: ${JSON.stringify(data.data)}`, 'success');
+                    displayFriendsStatus(data.data);
+                } else {
+                    log('获取联系人状态失败', 'error');
+                }
+            } catch (error) {
+                log(`获取联系人状态错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 注册P2P能力
+        async function registerP2P() {
+            if (!currentToken) {
+                log('请先登录', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/users/p2p-capability`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ capabilities: ['webrtc', 'datachannel'] })
+                });
+                
+                if (response.ok) {
+                    log('P2P能力注册成功', 'success');
+                    document.getElementById('p2pStatus').textContent = '支持';
+                } else {
+                    log('P2P能力注册失败', 'error');
+                }
+            } catch (error) {
+                log(`P2P注册错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 获取用户状态
+        async function getUserStatus() {
+            if (!currentToken || !currentUserId) {
+                log('请先登录', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/users/${currentUserId}/status`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log(`用户状态: ${JSON.stringify(data.data)}`, 'success');
+                    
+                    const status = data.data;
+                    document.getElementById('onlineStatus').textContent = status.isOnline ? '在线' : '离线';
+                    document.getElementById('p2pStatus').textContent = status.p2pCapability ? '支持' : '不支持';
+                } else {
+                    log('获取用户状态失败', 'error');
+                }
+            } catch (error) {
+                log(`获取用户状态错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 处理状态更新
+        function handlePresenceUpdate(data) {
+            log(`用户 ${data.userId} 状态更新: ${data.status}`, 'info');
+            
+            // 更新好友状态显示
+            const friendsContainer = document.getElementById('friendsStatus');
+            let friendElement = document.getElementById(`friend-${data.userId}`);
+            
+            if (!friendElement) {
+                friendElement = document.createElement('div');
+                friendElement.id = `friend-${data.userId}`;
+                friendElement.className = 'user-status';
+                friendsContainer.appendChild(friendElement);
+            }
+            
+            friendElement.className = `user-status ${data.isOnline ? 'online' : 'offline'}`;
+            friendElement.innerHTML = `
+                <strong>用户 ${data.userId}:</strong> ${data.status}<br>
+                <strong>WebSocket:</strong> ${data.websocketConnected ? '已连接' : '未连接'}<br>
+                <strong>P2P:</strong> ${data.p2pCapability ? '支持' : '不支持'}<br>
+                <strong>时间:</strong> ${new Date(data.timestamp).toLocaleTimeString()}
+            `;
+        }
+        
+        // 显示好友状态
+        function displayFriendsStatus(contacts) {
+            const friendsContainer = document.getElementById('friendsStatus');
+            friendsContainer.innerHTML = '';
+            
+            contacts.forEach(contact => {
+                const friendElement = document.createElement('div');
+                friendElement.className = `user-status ${contact.isOnline ? 'online' : 'offline'}`;
+                friendElement.innerHTML = `
+                    <strong>用户 ${contact.userId}:</strong> ${contact.status}<br>
+                    <strong>WebSocket:</strong> ${contact.websocketConnected ? '已连接' : '未连接'}<br>
+                    <strong>P2P:</strong> ${contact.p2pCapability ? '支持' : '不支持'}<br>
+                    <strong>最后在线:</strong> ${contact.lastSeen ? new Date(contact.lastSeen).toLocaleString() : '未知'}
+                `;
+                friendsContainer.appendChild(friendElement);
+            });
+        }
+        
+        // 页面加载完成后初始化
+        window.onload = function() {
+            log('统一状态管理系统测试页面已加载', 'info');
+            updateUI();
+        };
+    </script>
+</body>
+</html>

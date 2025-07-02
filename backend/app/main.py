@@ -1,6 +1,8 @@
 from fastapi import FastAPI, WebSocket, Depends
+from websocket.manager import ConnectionManager
 from fastapi.middleware.cors import CORSMiddleware
-from api.v1.endpoints import friends, messages, keys, auth, presence, signaling, avatar, security
+from api.v1.endpoints import friends, messages, keys, auth, presence, signaling, avatar, security, local_storage, upload
+from api import steganography
 from websocket.events import websocket_endpoint
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
@@ -9,8 +11,27 @@ from fastapi.exception_handlers import RequestValidationError
 from fastapi.exceptions import HTTPException
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
 from core.security import decode_access_token
+from services.unified_presence_service import unified_presence
 
 app = FastAPI()
+
+# 创建 ConnectionManager 单例
+connection_manager = ConnectionManager()
+
+# 定义一个依赖项，用于获取 ConnectionManager 实例
+def get_connection_manager():
+    return connection_manager
+
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时初始化服务"""
+    await unified_presence.start_service()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭时清理资源"""
+    await unified_presence.stop_service()
+
 
 # 配置CORS
 origins = [
@@ -18,14 +39,17 @@ origins = [
     "http://127.0.0.1:8080",
     "http://localhost:8081",  # 新的前端端口
     "http://127.0.0.1:8081",
+    "http://localhost:8082",  # 新的前端端口
+    "http://127.0.0.1:8082",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # 注册API路由
@@ -37,6 +61,9 @@ app.include_router(signaling.router, prefix="/api")
 app.include_router(avatar.router, prefix="/api")
 app.include_router(security.router, prefix="/api")
 app.include_router(presence.router, prefix="/api")
+app.include_router(local_storage.router, prefix="/api")
+app.include_router(upload.router, prefix="/api")
+app.include_router(steganography.router, prefix="/api/steganography", tags=["steganography"])
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -45,7 +72,7 @@ def ping():
     return {"msg": "pong"}
 
 @app.websocket("/ws/{user_id}")
-async def websocket_route(websocket: WebSocket, user_id: int):
+async def websocket_route(websocket: WebSocket, user_id: int, manager: ConnectionManager = Depends(get_connection_manager)):
     # 从query参数获取token进行验证
     token = websocket.query_params.get("token")
     if not token:
@@ -65,7 +92,7 @@ async def websocket_route(websocket: WebSocket, user_id: int):
     if not user:
         await websocket.close(code=1008)
         return
-    await websocket_endpoint(websocket, user_id)
+    await websocket_endpoint(websocket, user_id, manager)
 
 ERROR_CODE_MAP = {
     401: "UNAUTHORIZED",
@@ -108,3 +135,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             "error": "INTERNAL_SERVER_ERROR"
         }
     )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
