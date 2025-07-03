@@ -11,7 +11,7 @@ class MessageBase(BaseModel):
     encrypted: bool = True
     method: str = 'Server'
     destroy_after: Optional[int] = Field(None, alias="destroyAfter")
-    hidding_message: Optional[str] = Field(None, alias="hidding_message")
+    hidding_message: Optional[str] = Field(None, alias="hiddenMessage")
 
 class MessageCreate(MessageBase):
     pass

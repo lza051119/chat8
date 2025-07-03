@@ -138,36 +138,42 @@ async def get_image(filename: str):
     """获取图片文件"""
     from fastapi.responses import FileResponse
     import re
+    import logging
     
-    # 验证文件名格式（防止路径遍历攻击）
-    # 支持两种格式：user_id/uuid.ext 或 uuid.ext
-    if not re.match(r'^(?:\d+/)?[a-f0-9-]+\.(jpg|jpeg|png|gif|webp)$', filename, re.IGNORECASE):
-        raise HTTPException(status_code=400, detail="无效的文件名格式")
-    
-    # 构建文件路径（支持用户ID子目录）
-    if "/" in filename:
-        # 新格式：user_id/filename
-        file_path = os.path.join(UPLOAD_BASE_DIR, filename)
-    else:
-        # 兼容旧格式：直接在images目录下
-        file_path = os.path.join(UPLOAD_BASE_DIR, filename)
-    
-    # 安全检查：确保文件路径在允许的目录内
-    real_upload_dir = os.path.realpath(UPLOAD_BASE_DIR)
-    real_file_path = os.path.realpath(file_path)
-    if not real_file_path.startswith(real_upload_dir):
-        raise HTTPException(status_code=403, detail="访问被拒绝")
-    
-    # 检查文件是否存在
-    if not os.path.exists(file_path):
-        # 文件不存在
-        raise HTTPException(status_code=404, detail="图片不存在")
-    
-    # 检查是否为文件（不是目录）
-    if not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail="图片不存在")
+    # 禁用此请求的访问日志
+    uvicorn_logger = logging.getLogger("uvicorn.access")
+    original_level = uvicorn_logger.level
+    uvicorn_logger.setLevel(logging.WARNING)
     
     try:
+        # 验证文件名格式（防止路径遍历攻击）
+        # 支持两种格式：user_id/uuid.ext 或 uuid.ext
+        if not re.match(r'^(?:\d+/)?[a-f0-9-]+\.(jpg|jpeg|png|gif|webp)$', filename, re.IGNORECASE):
+            raise HTTPException(status_code=400, detail="无效的文件名格式")
+        
+        # 构建文件路径（支持用户ID子目录）
+        if "/" in filename:
+            # 新格式：user_id/filename
+            file_path = os.path.join(UPLOAD_BASE_DIR, filename)
+        else:
+            # 兼容旧格式：直接在images目录下
+            file_path = os.path.join(UPLOAD_BASE_DIR, filename)
+        
+        # 安全检查：确保文件路径在允许的目录内
+        real_upload_dir = os.path.realpath(UPLOAD_BASE_DIR)
+        real_file_path = os.path.realpath(file_path)
+        if not real_file_path.startswith(real_upload_dir):
+            raise HTTPException(status_code=403, detail="访问被拒绝")
+        
+        # 检查文件是否存在
+        if not os.path.exists(file_path):
+            # 文件不存在
+            raise HTTPException(status_code=404, detail="图片不存在")
+        
+        # 检查是否为文件（不是目录）
+        if not os.path.isfile(file_path):
+            raise HTTPException(status_code=404, detail="图片不存在")
+        
         # 获取文件的MIME类型
         import mimetypes
         content_type, _ = mimetypes.guess_type(file_path)
@@ -186,3 +192,6 @@ async def get_image(filename: str):
     except Exception as e:
         # 返回图片失败
         raise HTTPException(status_code=500, detail="图片读取失败")
+    finally:
+        # 恢复日志级别
+        uvicorn_logger.setLevel(original_level)

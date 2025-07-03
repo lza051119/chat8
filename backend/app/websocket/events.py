@@ -132,7 +132,7 @@ async def handle_private_message(from_id, msg, manager: ConnectionManager):
         if msg.get("destroy_after"):
             message_data["destroyAfter"] = msg.get("destroy_after")
         if msg.get("hidding_message"):
-            message_data["hidding_message"] = msg.get("hidding_message")
+            message_data["hiddenMessage"] = msg.get("hidding_message")
         if msg.get("imageUrl"):
             message_data["imageUrl"] = msg.get("imageUrl")
         
@@ -221,7 +221,7 @@ async def handle_image_message(from_id, msg, manager: ConnectionManager):
         if msg.get("destroy_after"):
             message_data["destroyAfter"] = msg.get("destroy_after")
         if msg.get("hidding_message"):
-            message_data["hidding_message"] = msg.get("hidding_message")
+            message_data["hiddenMessage"] = msg.get("hidding_message")
         
         # 尝试推送给在线用户
         ws = manager.get(to_id)
@@ -292,7 +292,7 @@ async def send_offline_messages(user_id: int, websocket: WebSocket):
                 if msg.destroy_after:
                     message_data["destroyAfter"] = msg.destroy_after
                 if msg.hidding_message:
-                    message_data["hidding_message"] = msg.hidding_message
+                    message_data["hiddenMessage"] = msg.hidding_message
                 
                 try:
                     await websocket.send_text(json.dumps({
@@ -370,37 +370,5 @@ async def handle_webrtc_signaling(msg, from_id, manager: ConnectionManager):
         await ws.send_text(json.dumps(forward_msg))
     else:
         print(f"[WebRTC] 目标用户 {to_id} 不在线，无法转发信令 {msg['type']}")
-
-async def handle_voice_call_signaling(from_id, msg, manager: ConnectionManager):
-    """处理语音通话信令消息"""
-    to_id = msg.get("to_id")
-    ws = manager.get(to_id)
-    
-    print(f"[语音通话] 收到信令: {msg['type']} from {from_id} to {to_id}")
-    
-    if ws:
-        # 构建转发给目标客户端的消息
-        forward_msg = {
-            "type": msg["type"],
-            "from_id": from_id,
-            "to_id": to_id
-        }
-        
-        # 根据消息类型添加相应的数据
-        if msg["type"] == 'voice_call_offer':
-            # 前端发送的是payload字段，转发时使用offer字段
-            forward_msg['offer'] = msg.get("payload")
-        elif msg["type"] == 'voice_call_answer':
-            # 前端发送的是payload字段，转发时使用answer字段
-            forward_msg['answer'] = msg.get("payload")
-        elif msg["type"] == 'voice_ice_candidate':
-            # 前端发送的是payload字段，转发时使用candidate字段
-            forward_msg['candidate'] = msg.get("payload")
-        # voice_call_reject 和 voice_call_end 不需要额外数据
-        
-        await ws.send_text(json.dumps(forward_msg))
-        print(f"[语音通话] 信令已转发: {msg['type']} from {from_id} to {to_id}")
-    else:
-        print(f"[语音通话] 目标用户 {to_id} 不在线，信令丢弃")
 
 # 状态管理服务已删除

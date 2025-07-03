@@ -134,7 +134,7 @@ class MessageDBService:
                     message_data.get('message_type', 'text'),
                     message_data.get('file_path') if message_data.get('message_type') == 'image' else None,
                     message_data.get('file_name') if message_data.get('message_type') == 'image' else None,
-                    message_data.get('hidding_message') or message_data.get('hiddenMessage'),
+                    message_data.get('hidding_message'),
                     message_data.get('is_burn_after_read', False),
                     message_data.get('readable_duration'),
                     datetime.now().isoformat()
@@ -221,7 +221,6 @@ class MessageDBService:
                         'messageType': safe_get(row, 'message_type', 'text'),
                         'filePath': safe_get(row, 'file_path'),
                         'fileName': safe_get(row, 'file_name'),
-                        'hidding_message': bool(safe_get(row, 'hidding_message')),
                         'is_burn_after_read': bool(row['is_burn_after_read']),
                         'readable_duration': row['readable_duration'],
                         'is_read': bool(row['is_read']),

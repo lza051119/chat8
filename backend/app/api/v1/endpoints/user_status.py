@@ -34,6 +34,7 @@ async def send_heartbeat(
     
     用于客户端主动发送心跳，更新用户在线状态
     """
+    logger.info(f"[心跳API] 收到心跳请求，用户: {current_user.id}, 数据: {heartbeat_data}")
     try:
         user_id = int(current_user.id)
         user_states_service = get_user_states_service()
@@ -106,7 +107,7 @@ async def get_my_status(
 ):
     """获取当前用户的状态信息"""
     try:
-        user_id = int(current_user.id)
+        user_id = current_user["user_id"]
         user_states_service = get_user_states_service()
         result = await user_states_service.get_user_status(user_id)
         

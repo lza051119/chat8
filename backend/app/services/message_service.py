@@ -44,32 +44,29 @@ def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted:
         # 接收方在线，普通消息不保存到服务器数据库，直接转发
         pass
     
-    # 对于普通文本消息，保存到发送方的本地数据库
-    # 对于图片消息，由前端负责保存到本地数据库，避免重复保存
-    if message_type != 'image':
-        try:
-            message_data = {
-                'id': str(msg.id) if msg else f"{from_id}_{to_id}_{int(utc_now.timestamp())}",
-                'from': from_id,
-                'to': to_id,
-                'content': content,
-                'message_type': message_type,
-                'file_path': file_path if message_type == 'image' else None,
-                'file_name': file_name if message_type == 'image' else None,
-                'timestamp': utc_now.isoformat(),
-                'method': method,
-                'encrypted': encrypted,
-                'hidding_message': hidding_message
-            }
-            
-            MessageDBService.add_message(
-                user_id=from_id,
-                message_data=message_data
-            )
-            # 消息已保存到发送方本地数据库
-        except Exception as e:
-            # 保存到发送方本地数据库失败
-            pass
+    # 始终保存到发送方的本地数据库
+    try:
+        message_data = {
+            'id': str(msg.id) if msg else f"{from_id}_{to_id}_{int(utc_now.timestamp())}",
+            'from': from_id,
+            'to': to_id,
+            'content': content,
+            'message_type': message_type,
+            'file_path': file_path if message_type == 'image' else None,
+            'file_name': file_name if message_type == 'image' else None,
+            'timestamp': utc_now.isoformat(),
+            'method': method,
+            'encrypted': encrypted
+        }
+        
+        MessageDBService.add_message(
+            user_id=from_id,
+            message_data=message_data
+        )
+        # 消息已保存到发送方本地数据库
+    except Exception as e:
+        # 保存到发送方本地数据库失败
+        pass
     
     return msg
 
@@ -145,8 +142,8 @@ def get_message_history(db: Session, user_id: int, peer_id: int, page: int = 1, 
             formatted_msg["filePath"] = msg.file_path
         if msg.file_name:
             formatted_msg["fileName"] = msg.file_name
-        # 始终设置hidding_message字段，确保前端能正确判断
-        formatted_msg["hidding_message"] = bool(msg.hidding_message)
+        if msg.hidding_message:
+            formatted_msg["hiddenMessage"] = msg.hidding_message
         if msg.destroy_after:
             formatted_msg["destroyAfter"] = msg.destroy_after
         formatted_messages.append(formatted_msg)

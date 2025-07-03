@@ -47,7 +47,6 @@ def authenticate_user(user: UserLogin):
 
 def search_users(query: str, page: int = 1, limit: int = 20):
     db: Session = SessionLocal()
-    # 只进行精确匹配，不支持模糊搜索
     users_query = db.query(User).filter(
         (User.username == query) | (User.email == query)
     )

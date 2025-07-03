@@ -70,7 +70,7 @@ async def add_message(message: MessageCreate, current_user: UserOut = Depends(ge
             "method": message.method,
             "encrypted": message.encrypted,
             "message_type": message.message_type,  # 添加消息类型
-            "hidding_message": getattr(message, 'hidding_message', None) or getattr(message, 'hiddenMessage', None),  # 添加隐藏消息
+            "hidding_message": message.hidding_message,  # 添加隐藏消息
             "is_burn_after_read": False,
             "readable_duration": message.destroy_after
         }
@@ -80,8 +80,15 @@ async def add_message(message: MessageCreate, current_user: UserOut = Depends(ge
             message_data["file_path"] = message.file_path
             message_data["file_name"] = message.file_name
         
-        # 只为当前用户保存消息（避免重复插入）
-        if MessageDBService.add_message(int(current_user.id), message_data):
+        # 为发送者和接收者都保存消息
+        users_to_update = [int(current_user.id), message.to_id]
+        success_count = 0
+        
+        for user_id in users_to_update:
+            if MessageDBService.add_message(user_id, message_data):
+                success_count += 1
+        
+        if success_count > 0:
             return {"status": "success", "message": "消息已保存"}
         else:
             raise HTTPException(status_code=500, detail="消息保存失败")

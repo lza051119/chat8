@@ -108,7 +108,7 @@ export const addMessage = async (message) => {
       messageType: message.messageType || 'text',  // 使用alias名称
       filePath: message.filePath || null,  // 使用alias名称
       fileName: message.fileName || null,  // 使用alias名称
-      hidding_message: message.hidding_message || null,  // 使用alias名称
+      hiddenMessage: message.hiddenMessage || null,  // 使用alias名称
       destroyAfter: message.destroy_after || null  // 使用alias名称
     };
     
