@@ -50,7 +50,7 @@ class MessageDBService:
                     received_time TEXT NOT NULL,  -- 消息接收时间
                     method TEXT DEFAULT 'Server',  -- 传输方式 (P2P/Server)
                     encrypted BOOLEAN DEFAULT FALSE,
-                    message_type TEXT DEFAULT 'text',  -- 消息类型 (text/image)
+                    message_type TEXT DEFAULT 'text',  -- 消息类型 (text/image/voice_call)
                     file_path TEXT DEFAULT NULL,  -- 文件路径（图片消息）
                     file_name TEXT DEFAULT NULL,  -- 文件名（图片消息）
                     hidding_message TEXT DEFAULT NULL,  -- 隐藏消息内容（隐写术）
@@ -59,6 +59,10 @@ class MessageDBService:
                     is_read BOOLEAN DEFAULT FALSE,  -- 是否已读
                     read_time TEXT DEFAULT NULL,  -- 阅读时间
                     is_deleted BOOLEAN DEFAULT FALSE,  -- 是否已删除
+                    call_duration INTEGER DEFAULT NULL,  -- 通话时长（秒）
+                    call_status TEXT DEFAULT NULL,  -- 通话状态 (completed/missed/rejected)
+                    call_start_time TEXT DEFAULT NULL,  -- 通话开始时间
+                    call_end_time TEXT DEFAULT NULL,  -- 通话结束时间
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
@@ -82,6 +86,27 @@ class MessageDBService:
             
             try:
                 cursor.execute('ALTER TABLE messages ADD COLUMN hidding_message TEXT DEFAULT NULL')
+            except sqlite3.OperationalError:
+                pass  # 字段已存在
+            
+            # 添加语音通话相关字段
+            try:
+                cursor.execute('ALTER TABLE messages ADD COLUMN call_duration INTEGER DEFAULT NULL')
+            except sqlite3.OperationalError:
+                pass  # 字段已存在
+            
+            try:
+                cursor.execute('ALTER TABLE messages ADD COLUMN call_status TEXT DEFAULT NULL')
+            except sqlite3.OperationalError:
+                pass  # 字段已存在
+            
+            try:
+                cursor.execute('ALTER TABLE messages ADD COLUMN call_start_time TEXT DEFAULT NULL')
+            except sqlite3.OperationalError:
+                pass  # 字段已存在
+            
+            try:
+                cursor.execute('ALTER TABLE messages ADD COLUMN call_end_time TEXT DEFAULT NULL')
             except sqlite3.OperationalError:
                 pass  # 字段已存在
             
@@ -137,6 +162,10 @@ class MessageDBService:
                     message_data.get('hidding_message'),
                     message_data.get('is_burn_after_read', False),
                     message_data.get('readable_duration'),
+                    message_data.get('call_duration'),
+                    message_data.get('call_status'),
+                    message_data.get('call_start_time'),
+                    message_data.get('call_end_time'),
                     datetime.now().isoformat()
                 )
                 
@@ -144,8 +173,9 @@ class MessageDBService:
                     INSERT OR REPLACE INTO messages (
                         message_id, from_user, to_user, content, timestamp, 
                         received_time, method, encrypted, message_type, file_path, file_name,
-                        hidding_message, is_burn_after_read, readable_duration, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        hidding_message, is_burn_after_read, readable_duration, 
+                        call_duration, call_status, call_start_time, call_end_time, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', base_values)
                 
                 conn.commit()
@@ -224,7 +254,11 @@ class MessageDBService:
                         'is_burn_after_read': bool(row['is_burn_after_read']),
                         'readable_duration': row['readable_duration'],
                         'is_read': bool(row['is_read']),
-                        'read_time': row['read_time']
+                        'read_time': row['read_time'],
+                        'callDuration': safe_get(row, 'call_duration'),
+                        'callStatus': safe_get(row, 'call_status'),
+                        'callStartTime': safe_get(row, 'call_start_time'),
+                        'callEndTime': safe_get(row, 'call_end_time')
                     }
                     
                     # 检查阅读后销毁消息的可读性

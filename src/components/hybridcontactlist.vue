@@ -34,7 +34,7 @@
         :class="['contact-item', { 'active': currentContact?.id === contact.id }]"
         @click="selectContact(contact)"
       >
-        <div class="contact-avatar">
+        <div class="contact-avatar" @click.stop="showFriendProfile(contact.id)" title="查看个人信息">
           {{ contact.username && contact.username.length > 0 ? contact.username[0].toUpperCase() : '?' }}
           <div :class="['online-indicator', { 'online': contact.online }]"></div>
         </div>
@@ -152,9 +152,9 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { hybridStore } from '../store/hybrid-store.js'
 import { hybridApi } from '../api/hybrid-api.js'
-import AddContactModal from './AddContactModal.vue'
+import AddContactModal from './addcontactmodal.vue'
 
-const emit = defineEmits(['contact-selected']);
+const emit = defineEmits(['contact-selected', 'show-friend-profile']);
 
 const searchQuery = ref('');
 const showStats = ref(false);
@@ -270,6 +270,10 @@ async function deleteContact(contactId) {
       alert('删除联系人失败，请重试');
     }
   }
+}
+
+function showFriendProfile(userId) {
+  emit('show-friend-profile', userId);
 }
 
 function formatLastMessage(message) {

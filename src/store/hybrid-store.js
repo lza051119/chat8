@@ -34,6 +34,15 @@ const state = reactive({
 
   // HybridMessaging服务实例
   hybridMessaging: null,
+
+  // 语音通话状态
+  currentCall: {
+    isActive: false,
+    contactId: null,
+    callId: null,
+    startTime: null,
+    status: 'idle' // idle, connecting, ringing, active, ended
+  }
 });
 
 export const hybridStore = {
@@ -61,6 +70,9 @@ export const hybridStore = {
   },
   get messageStats() {
     return state.messageStats;
+  },
+  get currentCall() {
+    return state.currentCall;
   },
   
   // 计算属性
@@ -275,12 +287,18 @@ export const hybridStore = {
       conversation.messages = [...conversation.messages, { ...message }];
     }
     
-    conversation.lastMessage = { ...message };
+    // 按时间戳重新排序所有消息，确保正确的时间顺序
+    conversation.messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    
+    // 更新最后一条消息（按时间戳排序后的最后一条）
+    if (conversation.messages.length > 0) {
+      conversation.lastMessage = { ...conversation.messages[conversation.messages.length - 1] };
+    }
     
     // 更新联系人的最后一条消息
     const contact = state.contacts.find(c => c.id === userId);
     if (contact) {
-      contact.lastMessage = { ...message };
+      contact.lastMessage = { ...conversation.lastMessage };
     }
     
     console.log(`已添加消息到用户${userId}的对话:`, message);
@@ -302,8 +320,30 @@ export const hybridStore = {
       return;
     }
     
+    // 处理消息，特别是语音通话记录
+    const processedMessages = messages.map(message => {
+      // 如果是语音通话记录，解析content字段
+      if (message.messageType === 'voice_call' && message.content) {
+        try {
+          const callInfo = JSON.parse(message.content);
+          return {
+            ...message,
+            callDuration: callInfo.duration || 0,
+            callStatus: callInfo.status || 'unknown',
+            callStartTime: callInfo.startTime || null,
+            callEndTime: callInfo.endTime || null
+          };
+        } catch (error) {
+          console.warn('解析语音通话记录失败:', error, message);
+          // 如果解析失败，保持原消息不变
+          return message;
+        }
+      }
+      return message;
+    });
+    
     // 按时间戳排序消息
-    const sortedMessages = messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    const sortedMessages = processedMessages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     
     state.conversations[userId].messages = sortedMessages;
     
@@ -334,7 +374,13 @@ export const hybridStore = {
 
   // 获取联系人信息
   getContact(userId) {
-    return state.contacts.find(c => c.id === userId);
+    // 处理字符串和数字类型的ID比较
+    return state.contacts.find(c => c.id == userId || c.id === parseInt(userId));
+  },
+
+  // 获取所有联系人
+  getContacts() {
+    return state.contacts;
   },
 
   // 更新P2P连接状态
@@ -505,7 +551,12 @@ export const hybridStore = {
       messageType: message.messageType || message.message_type || 'text',
       filePath: message.filePath || message.file_path || null,
       fileName: message.fileName || message.file_name || null,
-      imageUrl: message.imageUrl || null
+      imageUrl: message.imageUrl || null,
+      // 添加语音通话记录特殊字段
+      callDuration: message.callDuration || null,
+      callStatus: message.callStatus || null,
+      callStartTime: message.callStartTime || null,
+      callEndTime: message.callEndTime || null
     };
     
     console.log('Store处理接收到的消息:', messageObj);
@@ -557,7 +608,7 @@ export const hybridStore = {
     
     try {
       // 动态导入HybridMessaging
-      const { default: HybridMessaging } = await import('../services/HybridMessaging.js');
+      const { default: HybridMessaging } = await import('../services/hybridmessaging.js');
       
       const hybridMessaging = new HybridMessaging();
       
@@ -582,6 +633,29 @@ export const hybridStore = {
       state.hybridMessaging = null;
     }
   },
+
+  // 语音通话状态管理
+  setCurrentCall(callInfo) {
+    state.currentCall = { ...state.currentCall, ...callInfo };
+  },
+
+  clearCurrentCallInfo() {
+    state.currentCall = {
+      isActive: false,
+      contactId: null,
+      callId: null,
+      startTime: null,
+      status: 'idle'
+    };
+  },
+
+  updateCallStatus(status) {
+     state.currentCall.status = status;
+   },
+
+   getCurrentCallInfo() {
+     return state.currentCall;
+   },
 };
 
 export default hybridStore;

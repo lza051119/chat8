@@ -1,21 +1,21 @@
 from fastapi import FastAPI, WebSocket, Depends
 from contextlib import asynccontextmanager
 import logging
-from websocket.manager import ConnectionManager
+from app.websocket.manager import ConnectionManager
 from fastapi.middleware.cors import CORSMiddleware
-from api.v1.endpoints import friends, messages, keys, auth, signaling, avatar, security, local_storage, upload, user_status
-from api import steganography
-from websocket.events import websocket_endpoint
+from app.api.v1.endpoints import friends, messages, keys, auth, signaling, avatar, security, local_storage, upload, user_status, user_profile
+from app.api import steganography
+from app.websocket.events import websocket_endpoint
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
 from fastapi.exception_handlers import RequestValidationError
 from fastapi.exceptions import HTTPException
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
-from core.security import decode_access_token
-from services.user_states_update import initialize_user_states_service, cleanup_user_states_service
-from db.database import SessionLocal
-from db.models import User
+from app.core.security import decode_access_token
+from app.services.user_states_update import initialize_user_states_service, cleanup_user_states_service
+from app.db.database import SessionLocal
+from app.db.models import User
 
 # 创建 ConnectionManager 单例
 connection_manager = ConnectionManager()
@@ -110,6 +110,7 @@ app.include_router(signaling.router, prefix="/api/v1")
 app.include_router(avatar.router, prefix="/api/v1")
 app.include_router(security.router, prefix="/api/v1")
 app.include_router(user_status.router, prefix="/api/v1")
+app.include_router(user_profile.router, prefix="/api/v1")
 app.include_router(local_storage.router, prefix="/api/v1")
 app.include_router(upload.router, prefix="/api/v1")
 app.include_router(steganography.router, prefix="/api/steganography", tags=["steganography"])
@@ -182,11 +183,18 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    error_traceback = traceback.format_exc()
+    print(f"[全局异常处理] 请求路径: {request.url}")
+    print(f"[全局异常处理] 异常类型: {type(exc).__name__}")
+    print(f"[全局异常处理] 异常信息: {str(exc)}")
+    print(f"[全局异常处理] 异常堆栈:\n{error_traceback}")
+    
     return JSONResponse(
         status_code=HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "success": False,
-            "message": "服务器内部错误",
+            "message": f"服务器内部错误: {str(exc)}",
             "error": "INTERNAL_SERVER_ERROR"
         }
     )

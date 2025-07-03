@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey
-from db.database import SessionLocal
-from db.models import User, Friend
-from websocket.manager import ConnectionManager
+from app.db.database import SessionLocal
+from app.db.models import User, Friend
+from app.websocket.manager import ConnectionManager
 from datetime import datetime, timedelta
 import json
 import asyncio

@@ -19,7 +19,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from services.message_db_service import MessageDBService
+from app.services.message_db_service import MessageDBService
 
 def get_json_files_directory():
     """获取JSON文件存储目录"""

@@ -16,6 +16,12 @@ class HybridMessaging {
     this.reconnectAttempts = 0;        // 重连尝试次数
     this.maxReconnectAttempts = 5;     // 最大重连次数
     // 预连接功能已删除
+    
+    // 初始化语音通话状态
+    this.initVoiceCallState();
+    
+    // 消息处理器映射 - 延迟初始化
+    this.messageHandlers = {};
   }
 
   // 初始化混合消息系统
@@ -24,6 +30,9 @@ class HybridMessaging {
     this.token = token;
     
     console.log(`[初始化] 开始初始化混合消息系统，用户ID: ${userId}`);
+    
+    // 初始化消息处理器映射
+    this.initializeMessageHandlers();
     
     // 建立WebSocket连接用于信令
     await this.connectSignalingServer();
@@ -36,6 +45,22 @@ class HybridMessaging {
     this.setupBeforeUnloadHandler();
     
     console.log('[初始化] 混合消息系统初始化完成');
+  }
+
+  // 初始化消息处理器映射
+  initializeMessageHandlers() {
+    this.messageHandlers = {
+      'p2p_offer': this.handleP2POffer.bind(this),
+      'p2p_answer': this.handleP2PAnswer.bind(this),
+      'ice_candidate': this.handleIceCandidate.bind(this),
+      'user_status_update': this.handleUserStatusUpdate.bind(this),
+      'message': this.handleServerMessage.bind(this),
+      'voice_call_offer': this.handleVoiceCallOffer.bind(this),
+      'voice_call_answer': this.handleVoiceCallAnswer.bind(this),
+      'voice_call_ice_candidate': this.handleVoiceCallIceCandidate.bind(this),
+      'voice_call_rejected': this.handleVoiceCallRejected.bind(this),
+      'voice_call_ended': this.handleVoiceCallEnded.bind(this)
+    };
   }
 
   // 连接信令服务器（C/S）
@@ -135,6 +160,7 @@ class HybridMessaging {
   setupSignalingHandlers() {
     this.ws.onmessage = async (event) => {
       const data = JSON.parse(event.data);
+      console.log('[WebSocket] 收到消息:', data.type, data);
       
       switch (data.type) {
         case 'webrtc_offer':
@@ -158,103 +184,64 @@ class HybridMessaging {
           });
           break;
 
-        case 'private_message':
-          await this.handleServerMessage(data);
-          break;
-
-        case 'typing_start':
-        case 'typing_stop':
-          if (this.onTypingStatusChanged) {
-            this.onTypingStatusChanged({
-              userId: data.from_id,
-              isTyping: data.type === 'typing_start'
+        case 'user_status_update':
+          if (this.onUserStatusChanged) {
+            this.onUserStatusChanged({
+              userId: data.user_id,
+              status: data.status,
+              lastSeen: data.last_seen
             });
           }
           break;
 
+        case 'message':
+          await this.handleServerMessage(data);
+          break;
+          
+        // 语音通话相关消息处理
+        case 'voice_call_offer':
+        case 'voice_call_answer':
+        case 'voice_call_ice_candidate':
+        case 'voice_call_rejected':
+        case 'voice_call_ended':
+          const handler = this.messageHandlers[data.type];
+          if (handler) {
+            await handler(data);
+          }
+          break;
+
         case 'heartbeat_response':
-          console.log('[心跳] 收到服务器心跳响应');
-          break;
-
-        case 'presence':
-          // 统一状态管理系统发送的新格式消息
-          // 检查消息格式：后端直接发送presence对象，包含userId, status, isOnline等字段
-          if (data.userId && typeof data.userId === 'number' && data.userId > 0 && 
-              data.status && typeof data.status === 'string') {
-            if (this.onUserStatusChanged) {
-              this.onUserStatusChanged({
-                userId: data.userId,
-                status: data.status,
-                isOnline: data.isOnline,
-                timestamp: data.timestamp,
-                websocketConnected: data.websocketConnected,
-                p2pCapability: data.p2pCapability
-              });
-            }
-          } else {
-            console.warn('收到无效的presence消息，缺少必要字段:', data);
-          }
-          break;
-
-        case 'user_status':
-          // 兼容旧格式的用户状态消息
-          if (data.userId && typeof data.userId === 'number' && data.userId > 0 && 
-              data.status && typeof data.status === 'string') {
-            if (this.onUserStatusChanged) {
-              this.onUserStatusChanged({
-                userId: data.userId,
-                status: data.status,
-                isOnline: data.status === 'online'
-              });
-            }
-          } else {
-            console.warn('收到无效的user_status消息:', data);
-          }
-          break;
-
-        case 'user_status_change':
-          // 处理用户状态变化消息（新的用户状态服务发送的消息）
-          if (data.data && data.data.user_id && typeof data.data.user_id === 'number' && 
-              data.data.status && typeof data.data.status === 'string') {
-            console.log(`[状态变化] 用户 ${data.data.username}(${data.data.user_id}) 状态变为: ${data.data.status}`);
-            if (this.onUserStatusChanged) {
-              this.onUserStatusChanged({
-                userId: data.data.user_id,
-                username: data.data.username,
-                status: data.data.status,
-                isOnline: data.data.status === 'online',
-                timestamp: data.data.timestamp
-              });
-            }
-          } else {
-            console.warn('收到无效的user_status_change消息:', data);
-          }
-          break;
-
-        case 'friends_status':
-          // 处理在线好友列表消息
-          if (data.data && data.data.online_friends && Array.isArray(data.data.online_friends)) {
-            console.log(`[好友状态] 收到 ${data.data.online_friends.length} 个在线好友信息`);
-            if (this.onUserStatusChanged) {
-              // 为每个在线好友触发状态变化回调
-              data.data.online_friends.forEach(friend => {
-                this.onUserStatusChanged({
-                  userId: friend.user_id,
-                  username: friend.username,
-                  status: friend.status,
-                  isOnline: friend.status === 'online',
-                  lastSeen: friend.last_seen
-                });
-              });
-            }
-          } else {
-            console.warn('收到无效的friends_status消息:', data);
-          }
+          this.handleHeartbeatResponse();
           break;
 
         default:
-          console.warn('未处理的消息类型:', data.type);
+          console.log('未知消息类型:', data.type, data);
+          break;
       }
+    };
+
+    this.ws.onclose = (event) => {
+      console.log('WebSocket连接关闭:', event.code, event.reason);
+      
+      if (!this.isReconnecting && this.reconnectAttempts < this.maxReconnectAttempts) {
+        console.log(`开始重连，尝试次数: ${this.reconnectAttempts + 1}`);
+        this.isReconnecting = true;
+        
+        setTimeout(() => {
+          this.reconnectAttempts++;
+          this.connectSignalingServer().catch(error => {
+            console.error('重连失败:', error);
+            this.isReconnecting = false;
+          });
+        }, 2000 * this.reconnectAttempts); // 递增延迟
+      } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+        console.error('达到最大重连次数，停止重连');
+        this.isReconnecting = false;
+      }
+    };
+
+    this.ws.onerror = (error) => {
+      console.error('WebSocket错误:', error);
     };
   }
 
@@ -853,6 +840,24 @@ class HybridMessaging {
 
   // 处理服务器转发的消息
   async handleServerMessage(data) {
+    // 检查是否为语音通话相关消息
+    const voiceCallMessageTypes = [
+      'voice_call_offer',
+      'voice_call_answer', 
+      'voice_call_ice_candidate',
+      'voice_call_rejected',
+      'voice_call_ended'
+    ];
+    
+    if (voiceCallMessageTypes.includes(data.type)) {
+      // 语音通话相关消息由对应的处理器处理
+      const handler = this.messageHandlers[data.type];
+      if (handler) {
+        await handler(data);
+      }
+      return;
+    }
+    
     const msgData = {
       id: data.id || `msg_${data.from}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       from: data.from,
@@ -873,9 +878,10 @@ class HybridMessaging {
       await addMessage(msgData);
       console.log('服务器消息已保存到本地数据库');
     } catch (dbError) {
-      console.warn('保存服务器消息到本地数据库失败:', dbError);
+      console.error('保存服务器消息到数据库失败:', dbError);
     }
     
+    // 通知UI层
     if (this.onMessageReceived) {
       this.onMessageReceived(msgData);
     }
@@ -1069,6 +1075,719 @@ class HybridMessaging {
   // 离线状态设置功能已移除
   async setOfflineStatus() {
     console.log('[离线] 离线状态设置功能已移除');
+  }
+
+  // ==================== 语音通话功能 ====================
+  
+  // 语音通话相关状态
+  initVoiceCallState() {
+    // 保存现有的回调函数引用
+    const existingOnVoiceCallReceived = this.onVoiceCallReceived;
+    const existingOnVoiceCallStatusChanged = this.onVoiceCallStatusChanged;
+    
+    // 清理现有的语音通话资源
+    if (this.voiceCallState) {
+      if (this.voiceCallState.localStream) {
+        this.voiceCallState.localStream.getTracks().forEach(track => {
+          track.stop();
+          console.log('[语音通话] 停止音频轨道:', track.kind);
+        });
+      }
+      if (this.voiceCallState.peerConnection) {
+        this.voiceCallState.peerConnection.close();
+        console.log('[语音通话] 关闭WebRTC连接');
+      }
+    }
+    
+    this.voiceCallState = {
+      isInCall: false,
+      currentCallId: null,
+      localStream: null,
+      remoteStream: null,
+      peerConnection: null,
+      callType: null, // 'outgoing' | 'incoming'
+      targetUserId: null,
+      callStartTime: null
+    };
+    
+    // 保持回调函数不被清空，除非是首次初始化
+    if (existingOnVoiceCallReceived !== undefined) {
+      this.onVoiceCallReceived = existingOnVoiceCallReceived;
+    }
+    if (existingOnVoiceCallStatusChanged !== undefined) {
+      this.onVoiceCallStatusChanged = existingOnVoiceCallStatusChanged;
+    }
+    
+    // 添加VoiceCall.vue中需要的属性
+    if (!this.voiceConnections) {
+      this.voiceConnections = new Map();
+    }
+    if (!this.remoteStreams) {
+      this.remoteStreams = new Map();
+    }
+    this.currentVoiceCall = null;
+    this.localStream = null;
+  }
+
+  // 发起语音通话
+  async initiateVoiceCall(toUserId) {
+    try {
+      console.log(`[语音通话] 开始发起通话给用户 ${toUserId}`);
+      
+      // 检查是否已在通话中
+      if (this.voiceCallState && this.voiceCallState.isInCall) {
+        throw new Error('当前已在通话中，无法发起新通话');
+      }
+      
+      // 初始化语音通话状态
+      if (!this.voiceCallState) {
+        this.initVoiceCallState();
+      }
+      
+      // 获取用户媒体流
+      const localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
+        video: false
+      });
+      
+      console.log('[语音通话] 本地音频流获取成功');
+      
+      // 创建WebRTC连接
+      const peerConnection = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      });
+      
+      // 添加本地流到连接
+      localStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, localStream);
+      });
+      
+      // 设置远程流处理
+      peerConnection.ontrack = (event) => {
+        console.log('[语音通话] 收到远程音频流');
+        this.voiceCallState.remoteStream = event.streams[0];
+        this.remoteStreams.set(toUserId, event.streams[0]); // 为VoiceCall.vue提供访问
+        if (this.onVoiceCallStatusChanged) {
+          this.onVoiceCallStatusChanged({
+            type: 'remote_stream_received',
+            stream: event.streams[0]
+          });
+        }
+      };
+      
+      // 监听连接状态变化
+      peerConnection.onconnectionstatechange = () => {
+        console.log(`[语音通话] 连接状态: ${peerConnection.connectionState}`);
+        if (this.onVoiceCallStatusChanged) {
+          this.onVoiceCallStatusChanged({
+            type: 'connection_state_changed',
+            state: peerConnection.connectionState
+          });
+        }
+      };
+      
+      // ICE候选处理
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate && this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: 'voice_call_ice_candidate',
+            to_id: toUserId,
+            payload: event.candidate
+          }));
+        }
+      };
+      
+      // 创建offer
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      
+      // 发送通话邀请
+      const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        const message = {
+          type: 'voice_call_offer',
+          to_id: toUserId,
+          call_id: callId,
+          payload: offer
+        };
+        console.log('[语音通话] 发送通话邀请消息:', message);
+        this.ws.send(JSON.stringify(message));
+        console.log('[语音通话] 通话邀请消息已发送到服务器');
+      } else {
+        throw new Error('WebSocket连接不可用，无法发起语音通话');
+      }
+      
+      // 更新状态
+      this.voiceCallState = {
+        isInCall: true,
+        currentCallId: callId,
+        localStream: localStream,
+        remoteStream: null,
+        peerConnection: peerConnection,
+        callType: 'outgoing',
+        targetUserId: toUserId,
+        callStartTime: new Date().toISOString()
+      };
+      
+      // 为VoiceCall.vue提供访问的属性
+      this.localStream = localStream;
+      this.currentVoiceCall = {
+        userId: toUserId,
+        type: 'outgoing',
+        status: 'connecting'
+      };
+      this.voiceConnections.set(toUserId, peerConnection);
+      
+      console.log('[语音通话] 通话邀请已发送');
+      
+      return {
+        success: true,
+        callId: callId,
+        localStream: localStream
+      };
+      
+    } catch (error) {
+      console.error('[语音通话] 发起通话失败:', error);
+      
+      // 清理资源
+      if (this.voiceCallState && this.voiceCallState.localStream) {
+        this.voiceCallState.localStream.getTracks().forEach(track => track.stop());
+      }
+      if (this.voiceCallState && this.voiceCallState.peerConnection) {
+        this.voiceCallState.peerConnection.close();
+      }
+      this.initVoiceCallState();
+      
+      throw error;
+    }
+  }
+  
+  // 接听语音通话
+  async acceptVoiceCall(fromUserId, offer) {
+    try {
+      console.log(`[语音通话] 接听来自用户 ${fromUserId} 的通话`);
+      
+      // 初始化语音通话状态
+      if (!this.voiceCallState) {
+        this.initVoiceCallState();
+      }
+      
+      // 获取用户媒体流
+      const localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
+        video: false
+      });
+      
+      // 创建WebRTC连接
+      const peerConnection = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      });
+      
+      // 添加本地流
+      localStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, localStream);
+      });
+      
+      // 设置远程流处理
+      peerConnection.ontrack = (event) => {
+        console.log('[语音通话] 收到远程音频流');
+        this.voiceCallState.remoteStream = event.streams[0];
+        this.remoteStreams.set(fromUserId, event.streams[0]); // 为VoiceCall.vue提供访问
+        if (this.onVoiceCallStatusChanged) {
+          this.onVoiceCallStatusChanged({
+            type: 'remote_stream_received',
+            stream: event.streams[0]
+          });
+        }
+      };
+      
+      // 监听连接状态变化
+      peerConnection.onconnectionstatechange = () => {
+        console.log(`[语音通话] 连接状态: ${peerConnection.connectionState}`);
+        if (this.onVoiceCallStatusChanged) {
+          this.onVoiceCallStatusChanged({
+            type: 'connection_state_changed',
+            state: peerConnection.connectionState
+          });
+        }
+      };
+      
+      // ICE候选处理
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate && this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: 'voice_call_ice_candidate',
+            to_id: fromUserId,
+            payload: event.candidate
+          }));
+        }
+      };
+      
+      // 设置远程描述
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+      
+      // 创建answer
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      
+      // 发送answer
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          type: 'voice_call_answer',
+          to_id: fromUserId,
+          payload: answer
+        }));
+      } else {
+        throw new Error('WebSocket连接不可用，无法接听语音通话');
+      }
+      
+      // 更新状态
+      this.voiceCallState = {
+        isInCall: true,
+        currentCallId: `call_${Date.now()}`,
+        localStream: localStream,
+        remoteStream: null,
+        peerConnection: peerConnection,
+        callType: 'incoming',
+        targetUserId: fromUserId,
+        callStartTime: new Date().toISOString()
+      };
+      
+      // 为VoiceCall.vue提供访问的属性
+      this.localStream = localStream;
+      this.currentVoiceCall = {
+        userId: fromUserId,
+        type: 'incoming',
+        status: 'active'
+      };
+      this.voiceConnections.set(fromUserId, peerConnection);
+      
+      console.log('[语音通话] 通话已接听');
+      
+      return {
+        success: true,
+        localStream: localStream
+      };
+      
+    } catch (error) {
+      console.error('[语音通话] 接听通话失败:', error);
+      
+      // 清理资源
+      if (this.voiceCallState && this.voiceCallState.localStream) {
+        this.voiceCallState.localStream.getTracks().forEach(track => track.stop());
+      }
+      if (this.voiceCallState && this.voiceCallState.peerConnection) {
+        this.voiceCallState.peerConnection.close();
+      }
+      this.initVoiceCallState();
+      
+      throw error;
+    }
+  }
+  
+  // 拒绝语音通话
+  async rejectVoiceCall(fromUserId) {
+    try {
+      console.log(`[语音通话] 拒绝来自用户 ${fromUserId} 的通话`);
+      
+      // 保存被拒绝的通话记录
+      await this.saveVoiceCallRecord(fromUserId, 'rejected');
+      
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          type: 'voice_call_rejected',
+          to_id: fromUserId
+        }));
+      }
+      
+      // 清理状态
+      this.initVoiceCallState();
+      
+      return { success: true };
+      
+    } catch (error) {
+      console.error('[语音通话] 拒绝通话失败:', error);
+      throw error;
+    }
+  }
+  
+  // 结束语音通话
+  async endVoiceCall(userId) {
+    try {
+      console.log(`[语音通话] 结束与用户 ${userId} 的通话`);
+      
+      // 保存通话记录
+      if (this.voiceCallState && this.voiceCallState.callStartTime) {
+        await this.saveVoiceCallRecord(userId, 'completed');
+      }
+      
+      // 发送结束通话信号
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          type: 'voice_call_ended',
+          to_id: userId
+        }));
+      }
+      
+      // 清理本地资源
+      if (this.voiceCallState) {
+        if (this.voiceCallState.localStream) {
+          this.voiceCallState.localStream.getTracks().forEach(track => track.stop());
+        }
+        if (this.voiceCallState.peerConnection) {
+          this.voiceCallState.peerConnection.close();
+        }
+      }
+      
+      // 清理VoiceCall.vue相关的属性
+      if (this.voiceConnections) {
+        this.voiceConnections.delete(userId);
+      }
+      if (this.remoteStreams) {
+        this.remoteStreams.delete(userId);
+      }
+      this.localStream = null;
+      this.currentVoiceCall = null;
+      
+      // 重置状态但不清空回调函数
+      const existingOnVoiceCallReceived = this.onVoiceCallReceived;
+      const existingOnVoiceCallStatusChanged = this.onVoiceCallStatusChanged;
+      
+      this.initVoiceCallState();
+      
+      // 恢复回调函数
+      this.onVoiceCallReceived = existingOnVoiceCallReceived;
+      this.onVoiceCallStatusChanged = existingOnVoiceCallStatusChanged;
+      
+      // 通知前端通话已结束，但不触发页面跳转
+      if (this.onVoiceCallStatusChanged) {
+        this.onVoiceCallStatusChanged({
+          type: 'call_ended_local',
+          userId: userId
+        });
+      }
+      
+      return { success: true };
+      
+    } catch (error) {
+      console.error('[语音通话] 结束通话失败:', error);
+      throw error;
+    }
+  }
+  
+  // 切换静音状态
+  toggleMute() {
+    if (this.voiceCallState && this.voiceCallState.localStream) {
+      const audioTracks = this.voiceCallState.localStream.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !track.enabled;
+      });
+      return !audioTracks[0]?.enabled;
+    }
+    return false;
+  }
+  
+  // 保存语音通话记录
+   async saveVoiceCallRecord(userId, callStatus) {
+     try {
+       const callEndTime = new Date().toISOString();
+       let callStartTime = callEndTime;
+       let duration = 0;
+       
+       if (this.voiceCallState && this.voiceCallState.callStartTime) {
+         callStartTime = this.voiceCallState.callStartTime;
+         const startTime = new Date(callStartTime);
+         const endTime = new Date(callEndTime);
+         duration = Math.floor((endTime - startTime) / 1000); // 通话时长（秒）
+       } else {
+         // 对于被拒绝的通话，可能没有callStartTime，使用当前时间
+         console.warn('[语音通话] 缺少通话开始时间，使用当前时间作为开始时间');
+       }
+      
+      // 构建包含通话信息的内容
+      const callInfo = {
+        type: 'voice_call',
+        status: callStatus,
+        duration: duration,
+        startTime: callStartTime,
+        endTime: callEndTime
+      };
+      
+      const callRecord = {
+         to: userId,
+         content: JSON.stringify(callInfo),
+         messageType: 'voice_call',
+         method: 'Server',
+         encrypted: false
+       };
+      
+      console.log('[语音通话] 保存通话记录:', callRecord);
+      
+      // 发送到后端保存
+      try {
+        const response = await fetch('/api/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify(callRecord)
+        });
+        
+        if (response.ok) {
+          console.log('[语音通话] 通话记录保存成功');
+        } else {
+          console.error('[语音通话] 保存通话记录失败:', response.statusText);
+        }
+      } catch (fetchError) {
+        console.error('[语音通话] 保存通话记录网络错误:', fetchError);
+      }
+      
+      // 无论后端保存是否成功，都要通知前端更新聊天记录
+      if (this.onMessageReceived) {
+        const messageForUI = {
+          id: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          from: this.currentUserId,
+          to: userId,
+          content: `语音通话 - ${callStatus === 'completed' ? '已完成' : callStatus === 'rejected' ? '被拒绝' : callStatus}`,
+          messageType: 'voice_call',
+          callDuration: duration,
+          callStatus: callStatus,
+          callStartTime: callStartTime,
+          callEndTime: callEndTime,
+          timestamp: callEndTime,
+          method: 'Server'
+        };
+        
+        console.log('[语音通话] 通知前端添加通话记录:', messageForUI);
+        this.onMessageReceived(messageForUI);
+      }
+      
+    } catch (error) {
+      console.error('[语音通话] 保存通话记录异常:', error);
+    }
+  }
+  
+  // 强制重置语音通话状态
+  forceResetVoiceCallState() {
+    try {
+      console.log('[语音通话] 强制重置通话状态');
+      
+      // 清理资源
+      if (this.voiceCallState) {
+        if (this.voiceCallState.localStream) {
+          this.voiceCallState.localStream.getTracks().forEach(track => track.stop());
+        }
+        if (this.voiceCallState.peerConnection) {
+          this.voiceCallState.peerConnection.close();
+        }
+      }
+      
+      // 重置状态
+      this.initVoiceCallState();
+      
+      return { success: true };
+      
+    } catch (error) {
+      console.error('[语音通话] 强制重置状态失败:', error);
+      return { success: false, error: error.message };
+    }
+  }
+  
+  // ==================== 语音通话消息处理器 ====================
+  
+  // 处理语音通话邀请
+  async handleVoiceCallOffer(data) {
+    try {
+      console.log(`[语音通话] 收到来自用户 ${data.from_id} 的通话邀请`);
+      
+      if (this.onVoiceCallReceived) {
+        this.onVoiceCallReceived({
+          type: 'incoming_call',
+          fromUserId: data.from_id,
+          callId: data.call_id,
+          offer: data.payload
+        });
+      }
+      
+    } catch (error) {
+      console.error('[语音通话] 处理通话邀请失败:', error);
+    }
+  }
+  
+  // 处理语音通话应答
+  async handleVoiceCallAnswer(data) {
+    try {
+      console.log(`[语音通话] 收到来自用户 ${data.from_id} 的通话应答`);
+      
+      if (this.voiceCallState && this.voiceCallState.peerConnection) {
+        await this.voiceCallState.peerConnection.setRemoteDescription(
+          new RTCSessionDescription(data.payload)
+        );
+        
+        if (this.onVoiceCallStatusChanged) {
+          this.onVoiceCallStatusChanged({
+            type: 'call_answered',
+            fromUserId: data.from_id
+          });
+        }
+      }
+      
+    } catch (error) {
+      console.error('[语音通话] 处理通话应答失败:', error);
+    }
+  }
+  
+  // 处理语音通话ICE候选
+  async handleVoiceCallIceCandidate(data) {
+    try {
+      console.log(`[语音通话] 收到来自用户 ${data.from_id} 的ICE候选`);
+      
+      if (this.voiceCallState && this.voiceCallState.peerConnection) {
+        await this.voiceCallState.peerConnection.addIceCandidate(
+          new RTCIceCandidate(data.payload)
+        );
+      }
+      
+    } catch (error) {
+      console.error('[语音通话] 处理ICE候选失败:', error);
+    }
+  }
+  
+  // 处理语音通话被拒绝
+  async handleVoiceCallRejected(data) {
+    try {
+      console.log(`[语音通话] 用户 ${data.from_id} 拒绝了通话`);
+      
+      // 保存被拒绝的通话记录
+      await this.saveVoiceCallRecord(data.from_id, 'rejected');
+      
+      // 清理资源
+      if (this.voiceCallState) {
+        if (this.voiceCallState.localStream) {
+          this.voiceCallState.localStream.getTracks().forEach(track => track.stop());
+        }
+        if (this.voiceCallState.peerConnection) {
+          this.voiceCallState.peerConnection.close();
+        }
+      }
+      
+      // 重置状态
+      this.initVoiceCallState();
+      
+      if (this.onVoiceCallStatusChanged) {
+        this.onVoiceCallStatusChanged({
+          type: 'call_rejected',
+          fromUserId: data.from_id
+        });
+      }
+      
+    } catch (error) {
+      console.error('[语音通话] 处理通话拒绝失败:', error);
+    }
+  }
+  
+  // 处理语音通话结束
+  async handleVoiceCallEnded(data) {
+    try {
+      console.log(`[语音通话] 用户 ${data.from_id} 结束了通话`);
+      
+      // 保存远程结束的通话记录
+      if (this.voiceCallState && this.voiceCallState.callStartTime) {
+        await this.saveVoiceCallRecord(data.from_id, 'completed');
+      }
+      
+      // 清理资源
+      if (this.voiceCallState) {
+        if (this.voiceCallState.localStream) {
+          this.voiceCallState.localStream.getTracks().forEach(track => track.stop());
+        }
+        if (this.voiceCallState.peerConnection) {
+          this.voiceCallState.peerConnection.close();
+        }
+      }
+      
+      // 清理VoiceCall.vue相关的属性
+      if (this.voiceConnections) {
+        this.voiceConnections.delete(data.from_id);
+      }
+      if (this.remoteStreams) {
+        this.remoteStreams.delete(data.from_id);
+      }
+      this.localStream = null;
+      this.currentVoiceCall = null;
+      
+      // 重置状态但不清空回调函数
+      const existingOnVoiceCallReceived = this.onVoiceCallReceived;
+      const existingOnVoiceCallStatusChanged = this.onVoiceCallStatusChanged;
+      
+      this.initVoiceCallState();
+      
+      // 恢复回调函数
+      this.onVoiceCallReceived = existingOnVoiceCallReceived;
+      this.onVoiceCallStatusChanged = existingOnVoiceCallStatusChanged;
+      
+      if (this.onVoiceCallStatusChanged) {
+        this.onVoiceCallStatusChanged({
+          type: 'call_ended_remote',
+          fromUserId: data.from_id
+        });
+      }
+      
+    } catch (error) {
+      console.error('[语音通话] 处理通话结束失败:', error);
+    }
+  }
+  
+  // 处理心跳响应
+  handleHeartbeatResponse() {
+    console.log('[心跳] 收到服务器心跳响应');
+    this.lastHeartbeatTime = Date.now();
+    this.connectionHealthy = true;
+  }
+
+  // 处理用户状态更新
+  handleUserStatusUpdate(data) {
+    console.log('[用户状态] 收到用户状态更新:', data);
+    if (this.onUserStatusChanged) {
+      this.onUserStatusChanged({
+        userId: data.user_id,
+        status: data.status,
+        lastSeen: data.last_seen
+      });
+    }
+  }
+
+  // 切换静音状态
+  toggleMute() {
+    if (this.localStream || this.voiceCallState?.localStream) {
+      const stream = this.localStream || this.voiceCallState.localStream;
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        const currentMuted = !audioTracks[0].enabled;
+        audioTracks.forEach(track => {
+          track.enabled = currentMuted;
+        });
+        console.log(`[语音通话] 麦克风${currentMuted ? '已开启' : '已静音'}`);
+        return !currentMuted; // 返回新的静音状态
+      }
+    }
+    return false;
   }
 }
 

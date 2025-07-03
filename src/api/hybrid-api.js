@@ -38,106 +38,106 @@ api.interceptors.response.use((response) => {
 // 认证相关API
 export const authAPI = {
   // 用户登录
-  login: (credentials) => api.post('/auth/login', credentials),
+  login: (credentials) => api.post('/v1/auth/login', credentials),
   
   // 用户注册
-  register: (userData) => api.post('/auth/register', userData),
+  register: (userData) => api.post('/v1/auth/register', userData),
   
   // 退出登录
-  logout: () => api.post('/auth/logout'),
+  logout: () => api.post('/v1/auth/logout'),
   
   // 刷新token
-  refreshToken: () => api.post('/auth/refresh'),
+  refreshToken: () => api.post('/v1/auth/refresh'),
   
   // 获取用户信息
-  getUserInfo: () => api.get('/auth/me')
+  getUserInfo: () => api.get('/v1/auth/me')
 };
 
 // 联系人相关API
 export const contactAPI = {
   // 获取联系人列表
-  getContacts: () => api.get('/contacts'),
+  getContacts: () => api.get('/v1/contacts'),
   
   // 发送好友申请
-  sendFriendRequest: (userId, message = null) => api.post('/contacts/request', { to_user_id: userId, message }),
+  sendFriendRequest: (userId, message = null) => api.post('/v1/contacts/request', { to_user_id: userId, message }),
   
   // 获取好友申请列表
-  getFriendRequests: (type = 'received') => api.get(`/requests?request_type=${type}`),
+  getFriendRequests: (type = 'received') => api.get(`/v1/requests?request_type=${type}`),
   
   // 处理好友申请
-  handleFriendRequest: (requestId, action) => api.post('/requests/handle', { request_id: requestId, action }),
+  handleFriendRequest: (requestId, action) => api.post('/v1/requests/handle', { request_id: requestId, action }),
   
   // 删除联系人
-  removeContact: (userId) => api.delete(`/contacts/${userId}`),
+  removeContact: (userId) => api.delete(`/v1/contacts/${userId}`),
   
   // 搜索用户
-  searchUsers: (query) => api.get(`/users/search?q=${encodeURIComponent(query)}`)
+  searchUsers: (query) => api.get(`/v1/users/search?q=${encodeURIComponent(query)}`)
 };
 
 // 消息相关API
 export const messageAPI = {
   // 发送消息
-  sendMessage: (messageData) => api.post('/messages', messageData),
+  sendMessage: (messageData) => api.post('/v1/messages', messageData),
   
   // 获取消息
-  getMessages: (params) => api.get('/messages', { params }),
+  getMessages: (params) => api.get('/v1/messages', { params }),
   
   // 获取消息历史
-  getMessageHistory: (userId, params) => api.get(`/messages/history/${userId}`, { params })
+  getMessageHistory: (userId, params) => api.get(`/v1/messages/history/${userId}`, { params })
 };
 
 // 密钥管理API
 export const keyAPI = {
   // 上传公钥
-  uploadPublicKey: (publicKey) => api.post('/keys/public', { publicKey }),
+  uploadPublicKey: (publicKey) => api.post('/v1/keys/public', { publicKey }),
   
   // 获取用户公钥
-  getPublicKey: (userId) => api.get(`/keys/public/${userId}`),
+  getPublicKey: (userId) => api.get(`/v1/keys/public/${userId}`),
   
   // 获取所有联系人公钥
-  getAllPublicKeys: () => api.get('/keys/public')
+  getAllPublicKeys: () => api.get('/v1/keys/public')
 };
 
 // WebRTC信令API
 export const signalingAPI = {
   // 发送WebRTC offer
   sendOffer: (targetUserId, offer) => 
-    api.post('/signaling/offer', { targetUserId, offer }),
+    api.post('/v1/signaling/offer', { targetUserId, offer }),
   
   // 发送WebRTC answer
   sendAnswer: (targetUserId, answer) => 
-    api.post('/signaling/answer', { targetUserId, answer }),
+    api.post('/v1/signaling/answer', { targetUserId, answer }),
   
   // 发送ICE candidate
   sendICECandidate: (targetUserId, candidate) => 
-    api.post('/signaling/ice-candidate', { targetUserId, candidate }),
+    api.post('/v1/signaling/ice-candidate', { targetUserId, candidate }),
   
   // 获取待处理的信令消息
-  getPendingSignals: () => api.get('/signaling/pending')
+  getPendingSignals: () => api.get('/v1/signaling/pending')
 };
 
 // 在线状态API
 const presenceAPI = {
   // 发送心跳
   heartbeat: () => {
-    return api.post('/user-status/heartbeat', {
+    return api.post('/v1/user-status/heartbeat', {
       timestamp: new Date().toISOString()
     });
   },
   
   // 获取用户状态
   getUserStatus: (userId) => {
-    return api.get(`/user-status/${userId}`);
+    return api.get(`/v1/user-status/${userId}`);
   },
   
   // 获取当前用户状态
   getMyStatus: () => {
-    return api.get('/user-status/me');
+    return api.get('/v1/user-status/me');
   },
   
   // 获取服务统计信息
   getStats: () => {
-    return api.get('/user-status/stats');
+    return api.get('/v1/user-status/stats');
   },
   
   // 已移除的功能（保持兼容性）
@@ -151,16 +151,34 @@ const uploadAPI = {
   uploadAvatar: (file) => {
     const formData = new FormData();
     formData.append('avatar', file);
-    return api.post('/upload/avatar', formData, {
+    return api.post('/v1/upload/avatar', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
   },
   
   uploadImage: (formData) => {
-    return api.post('/upload/image', formData, {
+    return api.post('/v1/upload/image', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
   }
+};
+
+// 用户个人信息API
+const profileAPI = {
+  // 获取个人信息
+  getProfile: () => api.get('/v1/profile'),
+  
+  // 获取指定用户的个人信息
+  getUserProfile: (userId) => api.get(`/v1/profile/${userId}`),
+  
+  // 创建个人信息
+  createProfile: (profileData) => api.post('/v1/profile', profileData),
+  
+  // 更新个人信息
+  updateProfile: (profileData) => api.put('/v1/profile', profileData),
+  
+  // 删除个人信息
+  deleteProfile: () => api.delete('/v1/profile')
 };
 
 // 组合所有API模块
@@ -200,7 +218,14 @@ export const hybridApi = {
   
   // 上传
   uploadAvatar: uploadAPI.uploadAvatar,
-  uploadImage: uploadAPI.uploadImage
+  uploadImage: uploadAPI.uploadImage,
+  
+  // 个人信息
+  get: profileAPI.getProfile,
+  getUserProfile: profileAPI.getUserProfile,
+  post: profileAPI.createProfile,
+  put: profileAPI.updateProfile,
+  delete: profileAPI.deleteProfile
 };
 
 export default api;

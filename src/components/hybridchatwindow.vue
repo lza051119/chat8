@@ -64,6 +64,27 @@
           <!-- 文本消息 -->
           <div v-if="!message.messageType || message.messageType === 'text'" class="message-text">{{ message.content }}</div>
           
+          <!-- 语音通话记录 -->
+          <div v-else-if="message.messageType === 'voice_call'" class="message-voice-call">
+            <div class="voice-call-content">
+              <div class="voice-call-icon">
+                <span v-if="message.callStatus === 'completed'" class="call-icon completed">📞</span>
+                <span v-else-if="message.callStatus === 'rejected'" class="call-icon rejected">📵</span>
+                <span v-else class="call-icon missed">📞</span>
+              </div>
+              <div class="voice-call-info">
+                <div class="call-status">
+                  <span v-if="message.callStatus === 'completed'">语音通话</span>
+                  <span v-else-if="message.callStatus === 'rejected'">通话被拒绝</span>
+                  <span v-else>未接通话</span>
+                </div>
+                <div v-if="message.callDuration && message.callStatus === 'completed'" class="call-duration">
+                  通话时长：{{ formatCallDuration(message.callDuration) }}
+                </div>
+              </div>
+            </div>
+          </div>
+          
           <!-- 图片消息 -->
           <div v-else-if="message.messageType === 'image'" class="message-image">
             <div class="image-container" :class="{ 'has-hidden-message': message.hiddenMessage }">
@@ -185,6 +206,27 @@
               <div class="message-content">
                 <!-- 文本消息 -->
                 <div v-if="!message.messageType || message.messageType === 'text'" class="message-text">{{ message.content }}</div>
+                
+                <!-- 语音通话记录 -->
+                <div v-else-if="message.messageType === 'voice_call'" class="message-voice-call">
+                  <div class="voice-call-content">
+                    <div class="voice-call-icon">
+                      <span v-if="message.callStatus === 'completed'" class="call-icon completed">📞</span>
+                      <span v-else-if="message.callStatus === 'rejected'" class="call-icon rejected">📵</span>
+                      <span v-else class="call-icon missed">📞</span>
+                    </div>
+                    <div class="voice-call-info">
+                      <div class="call-status">
+                        <span v-if="message.callStatus === 'completed'">语音通话</span>
+                        <span v-else-if="message.callStatus === 'rejected'">通话被拒绝</span>
+                        <span v-else>未接通话</span>
+                      </div>
+                      <div v-if="message.callDuration && message.callStatus === 'completed'" class="call-duration">
+                        通话时长：{{ formatCallDuration(message.callDuration) }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 
                 <!-- 图片消息 -->
                 <div v-else-if="message.messageType === 'image'" class="message-image">
@@ -317,7 +359,7 @@ import { useRouter } from 'vue-router';
 import { hybridStore } from '../store/hybrid-store';
 import { getMessagesWithFriend, addMessage } from '@/client_db/database';
 import { hybridApi } from '@/api/hybrid-api';
-import HybridMessageInput from './HybridMessageInput.vue';
+import HybridMessageInput from './hybridmessageinput.vue';
 
 const router = useRouter();
 
@@ -492,6 +534,24 @@ function formatTime(timestamp) {
              month: '2-digit',
              day: '2-digit'
            }) + ' ' + timeStr;
+  }
+}
+
+function formatCallDuration(seconds) {
+  if (!seconds || seconds < 0) {
+    return '0秒';
+  }
+  
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+  
+  if (hours > 0) {
+    return `${hours}小时${minutes}分钟${remainingSeconds}秒`;
+  } else if (minutes > 0) {
+    return `${minutes}分钟${remainingSeconds}秒`;
+  } else {
+    return `${remainingSeconds}秒`;
   }
 }
 
@@ -2112,5 +2172,93 @@ function closeImageModal() {
   border: 1px solid rgba(220, 53, 69, 0.2) !important;
   color: #dc3545 !important;
   font-style: italic;
+}
+
+/* 语音通话记录样式 */
+.message-voice-call {
+  max-width: 280px;
+  margin-bottom: 0.5rem;
+}
+
+.voice-call-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(0, 123, 255, 0.1), rgba(0, 123, 255, 0.05));
+  border: 1px solid rgba(0, 123, 255, 0.2);
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.voice-call-content:hover {
+  background: linear-gradient(135deg, rgba(0, 123, 255, 0.15), rgba(0, 123, 255, 0.08));
+  border-color: rgba(0, 123, 255, 0.3);
+}
+
+.voice-call-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(0, 123, 255, 0.1);
+}
+
+.call-icon {
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.call-icon.completed {
+  color: #28a745;
+}
+
+.call-icon.rejected {
+  color: #dc3545;
+}
+
+.call-icon.missed {
+  color: #ffc107;
+}
+
+.voice-call-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.call-status {
+  font-weight: 600;
+  font-size: 14px;
+  color: #333;
+}
+
+.call-duration {
+  font-size: 12px;
+  color: #666;
+  font-weight: 500;
+}
+
+/* 发送的通话记录样式调整 */
+.message.sent .voice-call-content {
+  background: linear-gradient(135deg, rgba(0, 123, 255, 0.2), rgba(0, 123, 255, 0.1));
+  border-color: rgba(0, 123, 255, 0.3);
+}
+
+.message.sent .voice-call-content:hover {
+  background: linear-gradient(135deg, rgba(0, 123, 255, 0.25), rgba(0, 123, 255, 0.15));
+}
+
+.message.sent .call-status {
+  color: #fff;
+}
+
+.message.sent .call-duration {
+  color: rgba(255, 255, 255, 0.8);
 }
 </style>

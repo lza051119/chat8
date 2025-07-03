@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 import os
 import tempfile
-from services.steganography import embed, extract
+from app.services.steganography import embed, extract
 
 router = APIRouter()
 

@@ -1,5 +1,5 @@
-from db.database import SessionLocal
-from db.models import SignalingMessage
+from app.db.database import SessionLocal
+from app.db.models import SignalingMessage
 from datetime import datetime
 import json
 

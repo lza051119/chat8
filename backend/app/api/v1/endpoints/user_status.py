@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from db.database import get_db
-from core.security import get_current_user
-from services.user_states_update import get_user_states_service
+from app.db.database import get_db
+from app.core.security import get_current_user
+from app.services.user_states_update import get_user_states_service
 from pydantic import BaseModel
 from typing import Optional
 import logging

@@ -1,5 +1,5 @@
-from db.database import SessionLocal
-from db.models import SecurityEvent
+from app.db.database import SessionLocal
+from app.db.models import SecurityEvent
 from datetime import datetime
 
 def log_event(user_id: int, event_type: str, detail: str = None):

@@ -1,15 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from db.database import SessionLocal
-from core.security import get_current_user
-from schemas.user import UserOut
-from schemas.message import MessageCreate
+from app.db.database import SessionLocal
+from app.core.security import get_current_user
+from app.schemas.user import UserOut
+from app.schemas.message import MessageCreate
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import json
 import os
 from datetime import datetime
-from services.message_db_service import MessageDBService
+from app.services.message_db_service import MessageDBService
 
 router = APIRouter()  # 可读时间（秒）
 

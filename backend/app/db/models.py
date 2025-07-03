@@ -85,3 +85,19 @@ class SecurityEvent(Base):
     event_type = Column(String(64), nullable=False)
     detail = Column(Text, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+class UserProfile(Base):
+    __tablename__ = 'user_profiles'
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), unique=True, nullable=False)
+    birthday = Column(String(32), nullable=True)  # 生日
+    age = Column(Integer, nullable=True)  # 年龄
+    gender = Column(String(16), nullable=True)  # 性别
+    hobbies = Column(Text, nullable=True)  # 爱好
+    signature = Column(Text, nullable=True)  # 个性签名
+    display_name = Column(String(64), nullable=True)  # 显示名称（用户名修改）
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    
+    # 关系
+    user = relationship('User', foreign_keys=[user_id])

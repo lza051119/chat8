@@ -1,8 +1,8 @@
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
-from core.security import get_current_user
-from schemas.user import UserOut
-from db.database import SessionLocal
-from db.models import User as UserModel
+from app.core.security import get_current_user
+from app.schemas.user import UserOut
+from app.db.database import SessionLocal
+from app.db.models import User as UserModel
 import os
 
 router = APIRouter()

@@ -33,4 +33,27 @@ class ResponseModel(BaseModel):
     success: bool
     message: Optional[str] = None
     data: Optional[dict] = None
-    error: Optional[str] = None 
+    error: Optional[str] = None
+
+class UserProfileBase(BaseModel):
+    birthday: Optional[str] = None
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    hobbies: Optional[str] = None
+    signature: Optional[str] = None
+    display_name: Optional[str] = None
+
+class UserProfileCreate(UserProfileBase):
+    pass
+
+class UserProfileUpdate(UserProfileBase):
+    pass
+
+class UserProfileOut(UserProfileBase):
+    id: int
+    user_id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True

@@ -29,6 +29,9 @@
           📬
           <span v-if="pendingRequestsCount > 0" class="request-badge">{{ pendingRequestsCount }}</span>
         </button>
+        <button @click="showUserProfile = true" class="profile-btn" title="个人信息">
+          👤
+        </button>
         <button @click="showStatsModal = true" class="stats-btn">📊</button>
         <button @click="logout" class="logout-btn">退出</button>
       </div>
@@ -39,6 +42,7 @@
       <div class="contacts-sidebar">
         <HybridContactList 
           @contact-selected="handleContactSelected"
+          @show-friend-profile="showFriendProfileInfo"
           ref="contactList"
         />
       </div>
@@ -201,6 +205,13 @@
         </div>
       </div>
     </div>
+
+    <!-- 用户个人信息面板 -->
+    <UserProfile 
+      v-if="showUserProfile || showFriendProfile" 
+      :userId="friendProfileUserId"
+      @close="closeProfile"
+    />
   </div>
 </template>
 
@@ -208,10 +219,11 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { hybridStore } from '../store/hybrid-store';
-import HybridContactList from '../components/HybridContactList.vue';
-import HybridChatWindow from '../components/HybridChatWindow.vue';
+import HybridContactList from '../components/hybridcontactlist.vue';
+import HybridChatWindow from '../components/hybridchatwindow.vue';
 import FriendRequestModal from '../components/FriendRequestModal.vue';
-import HybridMessaging from '../services/HybridMessaging';
+import UserProfile from '../components/UserProfile.vue';
+import HybridMessaging from '../services/hybridmessaging';
 import { hybridApi } from '../api/hybrid-api.js';
 
 const router = useRouter();
@@ -219,6 +231,9 @@ const router = useRouter();
 const selectedContact = ref(null);
 const showStatsModal = ref(false);
 const showFriendRequestModal = ref(false);
+const showUserProfile = ref(false);
+const showFriendProfile = ref(false);
+const friendProfileUserId = ref(null);
 const showMethodSwitchHint = ref(false);
 const connectionNotification = ref(null);
 const contactList = ref(null);
@@ -350,7 +365,7 @@ async function acceptCall() {
       console.log('[接听通话] 开始接听来自用户', contactId, '的通话');
       
       // 先设置通话信息到store
-      hybridStore.setCurrentCallInfo(callInfo);
+      hybridStore.setCurrentCall(callInfo);
       
       // 直接在这里接听通话，避免在VoiceCall页面重复处理
       const result = await messaging.value.acceptVoiceCall(contactId, callInfo.offer);
@@ -383,6 +398,21 @@ async function rejectCall() {
     await messaging.value.rejectVoiceCall(incomingCall.value.fromUserId);
     incomingCall.value = null;
   }
+}
+
+// 关闭个人信息面板
+function closeProfile() {
+  showUserProfile.value = false;
+  showFriendProfile.value = false;
+  friendProfileUserId.value = null;
+}
+
+// 显示好友个人信息
+function showFriendProfileInfo(userId) {
+      // 确保userId是字符串类型
+      userId = String(userId)
+  friendProfileUserId.value = userId;
+  showFriendProfile.value = true;
 }
 
 async function initializeMessaging() {
@@ -436,22 +466,9 @@ async function handleContactSelected(contact) {
   selectedContact.value = contact;
   hybridStore.setCurrentContact(contact);
   
-  // 尝试预连接到选中的联系人
-  if (messaging.value && contact && contact.id) {
-    try {
-      const preConnectResult = await messaging.value.preConnectToUser(contact.id);
-      
-      if (preConnectResult.success) {
-        if (!preConnectResult.existing) {
-          showNotification(`与 ${contact.username} 的P2P连接已建立`, 'success', '🔗');
-        }
-      } else {
-        // P2P预连接失败，将使用服务器转发
-      }
-    } catch (error) {
-      console.warn(`[聊天窗口] 预连接到联系人 ${contact.username} 时发生错误:`, error);
-    }
-  }
+  // 预连接功能已移除，直接选择联系人即可
+  // P2P连接将在发送消息时自动建立
+  console.log(`[聊天窗口] 已选择联系人: ${contact.username}`);
 }
 
 function handleUserStatusChange(userId, status) {
@@ -739,7 +756,7 @@ async function logout() {
   background: #28a745;
 }
 
-.friend-request-btn, .stats-btn, .logout-btn {
+.friend-request-btn, .profile-btn, .stats-btn, .logout-btn {
   padding: 0.5rem 1rem;
   border: 1px solid #ddd;
   background: white;
@@ -749,7 +766,7 @@ async function logout() {
   position: relative;
 }
 
-.friend-request-btn:hover, .stats-btn:hover, .logout-btn:hover {
+.friend-request-btn:hover, .profile-btn:hover, .stats-btn:hover, .logout-btn:hover {
   background: #f8f9fa;
 }
 
@@ -778,6 +795,16 @@ async function logout() {
   justify-content: center;
   font-weight: bold;
   border: 2px solid white;
+}
+
+.profile-btn {
+  color: #007bff;
+  border-color: #007bff;
+}
+
+.profile-btn:hover {
+  background: #007bff;
+  color: white;
 }
 
 .logout-btn {

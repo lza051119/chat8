@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
-from db.models import User
-from core.security import hash_password, verify_password, create_access_token
-from schemas.user import UserCreate, UserLogin, UserOut, TokenData
-from db.database import SessionLocal
+from app.db.models import User
+from app.core.security import hash_password, verify_password, create_access_token
+from app.schemas.user import UserCreate, UserLogin, UserOut, TokenData
+from app.db.database import SessionLocal
 from fastapi import HTTPException
 from datetime import datetime
 

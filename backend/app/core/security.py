@@ -5,9 +5,9 @@ from .config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt as jose_jwt
-from schemas.user import UserOut
-from db.models import User
-from db.database import SessionLocal
+from app.schemas.user import UserOut
+from app.db.models import User
+from app.db.database import SessionLocal
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

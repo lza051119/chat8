@@ -1,10 +1,10 @@
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
-from db.database import SessionLocal
-from schemas.message import MessageCreate, Message
-from services import message_service
-from core.security import get_current_user
-from schemas.user import UserOut
+from app.db.database import SessionLocal
+from app.schemas.message import MessageCreate, Message
+from app.services import message_service
+from app.core.security import get_current_user
+from app.schemas.user import UserOut
 import os
 import uuid
 from datetime import datetime

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
-from core.security import get_current_user
-from schemas.user import UserOut
-from services import security_event_service
+from app.core.security import get_current_user
+from app.schemas.user import UserOut
+from app.services import security_event_service
 
 router = APIRouter()
 

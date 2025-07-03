@@ -41,7 +41,7 @@ export const initDatabase = async () => {
     const userId = user.id;
     
     // 检查本地存储状态
-    const response = await api.get(`/local-storage/status?user_id=${userId}`);
+    const response = await api.get(`/v1/local-storage/status?user_id=${userId}`);
     
     if (response.data) {
       const data = response.data;
@@ -51,20 +51,20 @@ export const initDatabase = async () => {
         console.log('📦 数据库不存在，正在创建数据库...');
         try {
           // 发送一条系统消息来触发数据库初始化
-          await api.post('/local-storage/messages', {
-            to_id: userId, // 发给自己
+          await api.post('/v1/local-storage/messages', {
+            to: userId, // 发给自己
             content: '数据库初始化完成',
             method: 'System',
             encrypted: false,
-            message_type: 'system'
+            messageType: 'system'
           });
           
           // 立即删除这条测试消息
-          const messagesResponse = await api.get(`/local-storage/messages/${userId}?limit=1`);
+          const messagesResponse = await api.get(`/v1/local-storage/messages/${userId}?limit=1`);
           if (messagesResponse.data.success && messagesResponse.data.messages.length > 0) {
             const testMessage = messagesResponse.data.messages[0];
             if (testMessage.content === '数据库初始化完成') {
-              await api.delete(`/local-storage/messages/${testMessage.message_id}?user_id=${userId}`);
+              await api.delete(`/v1/local-storage/messages/${testMessage.id}?user_id=${userId}`);
             }
           }
           
@@ -109,10 +109,10 @@ export const addMessage = async (message) => {
       filePath: message.filePath || null,  // 使用alias名称
       fileName: message.fileName || null,  // 使用alias名称
       hiddenMessage: message.hiddenMessage || null,  // 使用alias名称
-      destroyAfter: message.destroy_after || null  // 使用alias名称
+      destroyAfter: message.destroyAfter || message.destroy_after || null  // 使用alias名称
     };
     
-    const response = await api.post('/local-storage/messages', messageData);
+    const response = await api.post('/v1/local-storage/messages', messageData);
     
     if (response.data && response.data.status === 'success') {
       console.log(`💾 消息已保存: ${response.data.message}`);
@@ -146,7 +146,7 @@ export const getMessagesWithFriend = async (friendId, options = {}) => {
       params.append('search', search.trim());
     }
     
-    const response = await api.get(`/local-storage/messages/${parseInt(friendId)}?${params}`);
+    const response = await api.get(`/v1/local-storage/messages/${parseInt(friendId)}?${params}`);
     
     if (response.data.success) {
       console.log(`📖 已获取与用户 ${friendId} 的 ${response.data.count}/${response.data.total_count} 条聊天记录`);
@@ -183,7 +183,7 @@ export const checkDatabaseStatus = async () => {
     const user = JSON.parse(userStr);
     const userId = user.id;
     
-    const response = await api.get(`/local-storage/status?user_id=${userId}`);
+    const response = await api.get(`/v1/local-storage/status?user_id=${userId}`);
     
     if (response.data) {
       const data = response.data;
@@ -220,7 +220,7 @@ export const clearAllMessages = async () => {
     const user = JSON.parse(userStr);
     const userId = user.id;
     
-    const response = await api.delete(`/local-storage/messages?user_id=${userId}`);
+    const response = await api.delete(`/v1/local-storage/messages?user_id=${userId}`);
     
     if (response.data && response.data.status === 'success') {
       console.log('🗑️ 所有消息已清空:', response.data.message);

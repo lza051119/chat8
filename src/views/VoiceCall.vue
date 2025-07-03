@@ -11,7 +11,8 @@
             {{ formatDuration(callDuration) }}
           </div>
         </div>
-        <button @click="endCall" class="end-call-btn">×</button>
+        <button v-if="callStatus !== 'ended' && callStatus !== 'rejected'" @click="endCall" class="end-call-btn">×</button>
+        <button v-else @click="goBack" class="back-btn">返回</button>
       </div>
 
       <!-- 联系人信息 -->
@@ -510,11 +511,31 @@ function handleVoiceCallStatusChange(event) {
       // 设置状态但不调用endCall，避免递归
       callStatus.value = 'rejected';
       cleanup();
+      // 被拒绝时延迟2秒后自动返回
+      setTimeout(() => {
+        goBack();
+      }, 2000);
+      break;
+      
+    case 'call_ended_local':
+      // 本地主动结束通话，直接返回聊天界面
+      console.log('[语音通话] 本地主动结束通话');
+      callStatus.value = 'ended';
+      cleanup();
+      router.push('/chat');
+      break;
+      
+    case 'call_ended_remote':
+      // 远程结束通话，返回聊天界面但不刷新
+      console.log('[语音通话] 远程结束通话');
+      callStatus.value = 'ended';
+      cleanup();
       router.push('/chat');
       break;
       
     case 'call_ended':
-      // 设置状态但不调用endCall，避免递归
+      // 兼容旧的通话结束事件
+      console.log('[语音通话] 通话结束');
       callStatus.value = 'ended';
       cleanup();
       router.push('/chat');
@@ -529,7 +550,10 @@ function handleVoiceCallStatusChange(event) {
         // 设置状态但不调用endCall，避免递归
         callStatus.value = 'ended';
         cleanup();
-        router.push('/chat');
+        // 连接失败时延迟2秒后自动返回
+        setTimeout(() => {
+          goBack();
+        }, 2000);
       }
       break;
   }
@@ -580,23 +604,38 @@ function endCall() {
     return;
   }
   
+  console.log('[VoiceCall] 开始结束通话');
+  callStatus.value = 'ended';
+  
   const hybridMessaging = hybridStore.getHybridMessaging();
   if (hybridMessaging && contact.value) {
+    console.log(`[VoiceCall] 发送通话结束信号给用户 ${contact.value.id}`);
     hybridMessaging.endVoiceCall(contact.value.id);
   }
   
-  callStatus.value = 'ended';
   cleanup();
-  router.push('/chat');
+  // 移除自动跳转，让用户手动返回以避免界面刷新导致通话记录丢失
+  // router.push('/chat');
 }
 
 function handleVoiceCallRejected({ fromUserId }) {
   if (contact.value && fromUserId.toString() === contact.value.id.toString()) {
     console.log(`[语音通话] ${contact.value.username} 拒绝了通话`);
     callStatus.value = 'rejected';
-    // 延迟一会自动关闭
+    
+    // 立即清理资源并结束通话
+    const hybridMessaging = hybridStore.getHybridMessaging();
+    if (hybridMessaging && contact.value) {
+      console.log(`[VoiceCall] 对方拒绝通话，立即结束通话`);
+      // 不需要再发送结束信号，因为对方已经拒绝了
+      // hybridMessaging.endVoiceCall(contact.value.id);
+    }
+    
+    cleanup();
+    
+    // 显示拒绝提示后自动返回
     setTimeout(() => {
-      endCall();
+      goBack();
     }, 2000);
   }
 }
@@ -625,11 +664,11 @@ function cleanup() {
     ringtoneTimer = null;
   }
   
-  // 先清理语音通话回调，防止在清理过程中触发新的状态变化
+  // 不要清理全局的语音通话回调，因为其他用户可能还需要接收通话状态变化
+  // 只清理本地的回调引用
   const hybridMessaging = hybridStore.getHybridMessaging();
   if (hybridMessaging) {
-    hybridMessaging.onVoiceCallStatusChanged = null;
-    console.log('[VoiceCall] 已清理状态变化回调');
+    console.log('[VoiceCall] 保留全局状态变化回调，仅清理本地引用');
   }
   
   // 清理通话信息
@@ -716,7 +755,8 @@ function goBack() {
 }
 
 .minimize-btn,
-.end-call-btn {
+.end-call-btn,
+.back-btn {
   width: 40px;
   height: 40px;
   border: none;
@@ -729,9 +769,16 @@ function goBack() {
 }
 
 .minimize-btn:hover,
-.end-call-btn:hover {
+.end-call-btn:hover,
+.back-btn:hover {
   background: rgba(255, 255, 255, 0.3);
   transform: scale(1.1);
+}
+
+.back-btn {
+  font-size: 0.9rem;
+  width: 60px;
+  border-radius: 20px;
 }
 
 .call-status {

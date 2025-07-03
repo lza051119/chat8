@@ -13,7 +13,7 @@ import pathlib
 # 添加父目录到路径，以便导入服务
 sys.path.append(str(pathlib.Path(__file__).parent.parent))
 
-from services.message_db_service import MessageDBService
+from app.services.message_db_service import MessageDBService
 
 def migrate_user_database(user_id: int):
     """
