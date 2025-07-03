@@ -103,6 +103,9 @@
             <div v-if="errorMessage" class="error-message">
               {{ errorMessage }}
             </div>
+            <div v-if="successMessage" class="success-message">
+              {{ successMessage }}
+            </div>
           </form>
 
           <!-- 忘记密码表单 -->
@@ -180,6 +183,13 @@
               </button>
             </form>
             
+            <div v-if="errorMessage" class="error-message">
+              {{ errorMessage }}
+            </div>
+            <div v-if="successMessage" class="success-message">
+              {{ successMessage }}
+            </div>
+            
             <button @click="backToLogin" class="back-btn">
               返回登录
             </button>
@@ -207,6 +217,7 @@ const router = useRouter();
 
 const isLoading = ref(false);
 const errorMessage = ref('');
+const successMessage = ref('');
 const loginAttempts = ref(0);
 const maxAttempts = 3;
 const isBlocked = ref(false);
@@ -242,6 +253,7 @@ async function handleLogin() {
 
   isLoading.value = true;
   errorMessage.value = '';
+  successMessage.value = '';
 
   try {
     const response = await authAPI.login({
@@ -326,6 +338,7 @@ function resetForm() {
   newPassword.value = '';
   confirmPassword.value = '';
   errorMessage.value = '';
+  successMessage.value = '';
   stopCountdown();
 }
 
@@ -368,7 +381,9 @@ async function sendResetCode() {
     }
   } catch (e) {
     console.error('发送验证码失败:', e);
-    if (e.response?.data?.detail) {
+    if (e.response?.data?.message) {
+      errorMessage.value = e.response.data.message;
+    } else if (e.response?.data?.detail) {
       errorMessage.value = e.response.data.detail;
     } else {
       errorMessage.value = '发送验证码失败，请稍后重试';
@@ -400,7 +415,9 @@ async function verifyResetCode() {
     }
   } catch (e) {
     console.error('验证码验证失败:', e);
-    if (e.response?.data?.detail) {
+    if (e.response?.data?.message) {
+      errorMessage.value = e.response.data.message;
+    } else if (e.response?.data?.detail) {
       errorMessage.value = e.response.data.detail;
     } else {
       errorMessage.value = '验证码验证失败，请重试';
@@ -433,13 +450,16 @@ async function resetPassword() {
     
     if (response.data.success) {
       errorMessage.value = '';
+      successMessage.value = '密码重置成功！2秒后返回登录页面';
       setTimeout(() => {
         backToLogin();
       }, 2000);
     }
   } catch (e) {
     console.error('密码重置失败:', e);
-    if (e.response?.data?.detail) {
+    if (e.response?.data?.message) {
+      errorMessage.value = e.response.data.message;
+    } else if (e.response?.data?.detail) {
       errorMessage.value = e.response.data.detail;
     } else {
       errorMessage.value = '密码重置失败，请重试';
@@ -702,6 +722,17 @@ onUnmounted(() => {
   background: #ffeded;
   color: #d93025;
   border: 1px solid #f8d7da;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.success-message {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #e8f5e8;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
   border-radius: 0.5rem;
   font-size: 0.875rem;
   text-align: center;

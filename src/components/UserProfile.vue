@@ -9,6 +9,37 @@
     
     <div class="profile-content">
       <form @submit.prevent="saveProfile" class="profile-form">
+        <!-- 头像上传区域 -->
+        <div class="form-group avatar-section">
+          <label>头像</label>
+          <div class="avatar-upload-container">
+            <div class="avatar-preview" @click="!isViewingFriend && triggerFileInput()">
+              <img v-if="currentUser.avatar" :src="getAvatarUrl(currentUser.avatar)" alt="头像" class="avatar-image" />
+              <div v-else class="avatar-placeholder">
+                <i class="fas fa-user"></i>
+              </div>
+              <div v-if="!isViewingFriend" class="avatar-overlay">
+                <i class="fas fa-camera"></i>
+                <span>点击上传</span>
+              </div>
+            </div>
+            <input 
+              ref="fileInput" 
+              type="file" 
+              accept="image/*" 
+              @change="handleAvatarUpload" 
+              style="display: none"
+              :disabled="isViewingFriend"
+            />
+            <div v-if="!isViewingFriend && currentUser.avatar" class="avatar-actions">
+              <button type="button" @click="deleteAvatar" class="delete-avatar-btn" :disabled="uploading">
+                <i class="fas fa-trash"></i>
+                删除头像
+              </button>
+            </div>
+          </div>
+        </div>
+        
         <div class="form-group">
           <label for="displayName">显示名称</label>
           <input 
@@ -115,11 +146,18 @@ export default {
       default: null
     }
   },
-  emits: ['close'],
+  emits: ['close', 'avatar-updated'],
   setup(props, { emit }) {
     const loading = ref(false)
     const saving = ref(false)
+    const uploading = ref(false)
     const hasExistingProfile = ref(false)
+    const fileInput = ref(null)
+    
+    // 当前用户信息
+    const currentUser = reactive({
+      avatar: null
+    })
     
     // 判断是否在查看好友信息
     const isViewingFriend = computed(() => {
@@ -154,6 +192,14 @@ export default {
           Object.assign(profileData, response.data)
           Object.assign(originalData, response.data)
           hasExistingProfile.value = true
+        }
+        
+        // 加载用户基本信息（包括头像）
+        if (!isViewingFriend.value) {
+          const userInfo = await hybridApi.getUserInfo()
+          if (userInfo.data?.data?.user) {
+            currentUser.avatar = userInfo.data.data.user.avatar
+          }
         }
       } catch (error) {
         if (error.response?.status !== 404) {
@@ -197,6 +243,88 @@ export default {
       Object.assign(profileData, originalData)
     }
     
+    // 触发文件选择
+    const triggerFileInput = () => {
+      if (fileInput.value) {
+        fileInput.value.click()
+      }
+    }
+    
+    // 处理头像上传
+    const handleAvatarUpload = async (event) => {
+      const file = event.target.files[0]
+      if (!file) return
+      
+      // 验证文件类型
+      if (!file.type.startsWith('image/')) {
+        alert('请选择图片文件')
+        return
+      }
+      
+      // 验证文件大小（5MB）
+      if (file.size > 5 * 1024 * 1024) {
+        alert('图片大小不能超过5MB')
+        return
+      }
+      
+      uploading.value = true
+      try {
+        const response = await hybridApi.uploadAvatar(file)
+        if (response.data?.data?.avatarUrl) {
+          currentUser.avatar = response.data.data.avatarUrl
+          emit('avatar-updated', currentUser.avatar)
+          alert('头像上传成功')
+        }
+      } catch (error) {
+        console.error('头像上传失败:', error)
+        alert('头像上传失败，请稍后重试')
+      } finally {
+        uploading.value = false
+        // 清空文件输入
+        if (fileInput.value) {
+          fileInput.value.value = ''
+        }
+      }
+    }
+    
+    // 删除头像
+    const deleteAvatar = async () => {
+      if (!confirm('确定要删除头像吗？')) return
+      
+      uploading.value = true
+      try {
+        await hybridApi.deleteAvatar()
+        currentUser.avatar = null
+        emit('avatar-updated', null)
+        alert('头像删除成功')
+      } catch (error) {
+        console.error('头像删除失败:', error)
+        alert('头像删除失败，请稍后重试')
+      } finally {
+        uploading.value = false
+      }
+    }
+    
+    // 获取头像URL
+    const getAvatarUrl = (avatarPath) => {
+      if (!avatarPath) return ''
+      
+      // 如果是绝对路径（以http开头），直接返回
+      if (avatarPath.startsWith('http')) {
+        return avatarPath
+      }
+      
+      // 如果是API相对路径（以/api开头），拼接基础URL
+      if (avatarPath.startsWith('/api/')) {
+        const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+        return `${baseUrl}${avatarPath}`
+      }
+      
+      // 其他相对路径，拼接API基础URL
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      return `${baseUrl}${avatarPath.startsWith('/') ? '' : '/'}${avatarPath}`
+    }
+
     // 关闭个人信息面板
     const closeProfile = () => {
       emit('close')
@@ -209,11 +337,18 @@ export default {
     return {
       loading,
       saving,
+      uploading,
       profileData,
+      currentUser,
+      fileInput,
       isViewingFriend,
       saveProfile,
       resetForm,
-      closeProfile
+      closeProfile,
+      triggerFileInput,
+      handleAvatarUpload,
+      deleteAvatar,
+      getAvatarUrl
     }
   }
 }
@@ -286,6 +421,104 @@ export default {
   font-weight: 600;
   color: #333;
   font-size: 0.9rem;
+}
+
+/* 头像相关样式 */
+.avatar-section {
+  align-items: center;
+}
+
+.avatar-upload-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+.avatar-preview {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+  border: 3px solid #e1e5e9;
+  transition: border-color 0.2s;
+}
+
+.avatar-preview:hover {
+  border-color: #007bff;
+}
+
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  width: 100%;
+  height: 100%;
+  background-color: #f8f9fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6c757d;
+  font-size: 3rem;
+}
+
+.avatar-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  opacity: 0;
+  transition: opacity 0.2s;
+  font-size: 0.9rem;
+}
+
+.avatar-preview:hover .avatar-overlay {
+  opacity: 1;
+}
+
+.avatar-overlay i {
+  font-size: 1.5rem;
+  margin-bottom: 5px;
+}
+
+.avatar-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.delete-avatar-btn {
+  padding: 8px 16px;
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.delete-avatar-btn:hover:not(:disabled) {
+  background-color: #c82333;
+}
+
+.delete-avatar-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .form-input,
@@ -402,6 +635,11 @@ export default {
   .user-profile-container {
     width: 100vw;
     right: 0;
+  }
+  
+  .avatar-preview {
+    width: 100px;
+    height: 100px;
   }
 }
 </style>

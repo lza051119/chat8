@@ -3,7 +3,7 @@
     <div class="chat-header">
       <div v-if="contact" class="contact-info">
         <div class="contact-avatar">
-          <img v-if="contact.avatar" :src="contact.avatar" :alt="contact.username" />
+          <img v-if="contact.avatar" :src="getAvatarUrl(contact.avatar)" :alt="contact.username" class="avatar-image" />
           <div v-else class="avatar-placeholder">
             {{ contact.username[0].toUpperCase() }}
           </div>
@@ -1605,6 +1605,25 @@ function formatFileSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+function getAvatarUrl(avatarPath) {
+  if (!avatarPath) return '';
+  
+  // 如果是绝对路径（以http开头），直接返回
+  if (avatarPath.startsWith('http')) {
+    return avatarPath;
+  }
+  
+  // 如果是API相对路径（以/api开头），拼接基础URL
+  if (avatarPath.startsWith('/api/')) {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+    return `${baseUrl}${avatarPath}`;
+  }
+  
+  // 其他相对路径，拼接API基础URL
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+  return `${baseUrl}${avatarPath.startsWith('/') ? '' : '/'}${avatarPath}`;
+}
+
 function downloadFile(message) {
   console.log('=== 文件下载调试信息 ===');
   console.log('消息对象:', message);
@@ -1672,6 +1691,14 @@ function downloadFile(message) {
   border-radius: 50%;
   overflow: hidden;
   margin-right: 1rem;
+  position: relative;
+}
+
+.contact-avatar .avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
 }
 
 .avatar-placeholder {

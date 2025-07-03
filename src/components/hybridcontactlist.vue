@@ -35,7 +35,10 @@
         @click="selectContact(contact)"
       >
         <div class="contact-avatar" @click.stop="showFriendProfile(contact.id)" title="查看个人信息">
-          {{ contact.username && contact.username.length > 0 ? contact.username[0].toUpperCase() : '?' }}
+          <img v-if="contact.avatar" :src="getAvatarUrl(contact.avatar)" alt="头像" class="avatar-image" />
+          <div v-else class="avatar-placeholder">
+            {{ contact.username && contact.username.length > 0 ? contact.username[0].toUpperCase() : '?' }}
+          </div>
           <div :class="['online-indicator', { 'online': contact.online }]"></div>
         </div>
 
@@ -305,10 +308,27 @@ function toggleStats() {
   showStats.value = !showStats.value;
 }
 
+// 获取头像URL
+function getAvatarUrl(avatarPath) {
+  if (!avatarPath) return ''
+  // 如果是绝对路径，直接返回
+  if (avatarPath.startsWith('http')) {
+    return avatarPath
+  }
+  // 如果是API相对路径（以/api开头），拼接基础URL
+  if (avatarPath.startsWith('/api/')) {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+    return `${baseUrl}${avatarPath}`
+  }
+  // 其他相对路径，拼接API基础URL
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  return `${baseUrl}${avatarPath.startsWith('/') ? '' : '/'}${avatarPath}`
+}
+
 // 暴露方法
 defineExpose({
   refresh: loadContacts
-});
+})
 </script>
 
 <style scoped>
@@ -470,6 +490,25 @@ defineExpose({
   font-size: 1.2rem;
   margin-right: 1rem;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.contact-avatar .avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.contact-avatar .avatar-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #007bff;
+  color: white;
+  font-weight: bold;
+  font-size: 1.2rem;
 }
 
 .online-indicator {

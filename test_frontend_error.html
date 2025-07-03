@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试前端错误处理</title>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .error {
+            color: #dc3545;
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 3px;
+        }
+        .success {
+            color: #155724;
+            margin-top: 10px;
+            padding: 10px;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 3px;
+        }
+        input {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <h1>重置密码错误处理测试</h1>
+    
+    <div class="test-section">
+        <h3>测试1: 无效验证码</h3>
+        <input type="email" id="email1" placeholder="邮箱" value="future_234@qq.com">
+        <input type="text" id="code1" placeholder="验证码" value="123456">
+        <input type="password" id="password1" placeholder="新密码" value="newpassword123">
+        <button onclick="testInvalidCode()">测试无效验证码</button>
+        <div id="result1"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>测试2: 未注册邮箱</h3>
+        <input type="email" id="email2" placeholder="邮箱" value="nonexistent@example.com">
+        <input type="text" id="code2" placeholder="验证码" value="123456">
+        <input type="password" id="password2" placeholder="新密码" value="newpassword123">
+        <button onclick="testUnregisteredEmail()">测试未注册邮箱</button>
+        <div id="result2"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>测试3: 缺少验证码</h3>
+        <input type="email" id="email3" placeholder="邮箱" value="future_234@qq.com">
+        <input type="password" id="password3" placeholder="新密码" value="newpassword123">
+        <button onclick="testMissingCode()">测试缺少验证码</button>
+        <div id="result3"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        
+        // 模拟前端错误处理逻辑
+        function handleError(e, resultElementId) {
+            const resultElement = document.getElementById(resultElementId);
+            console.error('请求失败:', e);
+            
+            let errorMessage = '';
+            if (e.response?.data?.message) {
+                errorMessage = e.response.data.message;
+            } else if (e.response?.data?.detail) {
+                errorMessage = e.response.data.detail;
+            } else {
+                errorMessage = '请求失败，请重试';
+            }
+            
+            resultElement.innerHTML = `<div class="error">错误: ${errorMessage}</div>`;
+        }
+        
+        async function testInvalidCode() {
+            const email = document.getElementById('email1').value;
+            const code = document.getElementById('code1').value;
+            const password = document.getElementById('password1').value;
+            
+            try {
+                const response = await axios.post(`${API_BASE}/v1/auth/reset-password`, {
+                    email: email,
+                    code: code,
+                    new_password: password
+                });
+                
+                if (response.data.success) {
+                    document.getElementById('result1').innerHTML = '<div class="success">密码重置成功</div>';
+                }
+            } catch (e) {
+                handleError(e, 'result1');
+            }
+        }
+        
+        async function testUnregisteredEmail() {
+            const email = document.getElementById('email2').value;
+            const code = document.getElementById('code2').value;
+            const password = document.getElementById('password2').value;
+            
+            try {
+                const response = await axios.post(`${API_BASE}/v1/auth/reset-password`, {
+                    email: email,
+                    code: code,
+                    new_password: password
+                });
+                
+                if (response.data.success) {
+                    document.getElementById('result2').innerHTML = '<div class="success">密码重置成功</div>';
+                }
+            } catch (e) {
+                handleError(e, 'result2');
+            }
+        }
+        
+        async function testMissingCode() {
+            const email = document.getElementById('email3').value;
+            const password = document.getElementById('password3').value;
+            
+            try {
+                const response = await axios.post(`${API_BASE}/v1/auth/reset-password`, {
+                    email: email,
+                    new_password: password
+                    // 故意不包含 code 字段
+                });
+                
+                if (response.data.success) {
+                    document.getElementById('result3').innerHTML = '<div class="success">密码重置成功</div>';
+                }
+            } catch (e) {
+                handleError(e, 'result3');
+            }
+        }
+    </script>
+</body>
+</html>

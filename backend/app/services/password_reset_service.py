@@ -6,6 +6,7 @@ from app.core.email_config import send_verification_email
 from app.services.verification_service import VerificationCodeService
 from fastapi import HTTPException
 from typing import Dict, Any
+from datetime import datetime
 
 class PasswordResetService:
     """密码重置服务"""
@@ -63,8 +64,8 @@ class PasswordResetService:
             if not user:
                 raise HTTPException(status_code=404, detail="该邮箱未注册")
             
-            # 验证验证码
-            if not VerificationCodeService.verify_code(email, code):
+            # 验证验证码（不删除，为后续重置密码保留）
+            if not VerificationCodeService.verify_code_without_delete(email, code):
                 raise HTTPException(status_code=400, detail="验证码错误或已过期")
             
             return {
@@ -93,21 +94,24 @@ class PasswordResetService:
             if not user:
                 raise HTTPException(status_code=404, detail="该邮箱未注册")
             
-            # 验证验证码
-            if not VerificationCodeService.verify_code(email, code):
+            # 验证验证码（不删除）
+            if not VerificationCodeService.verify_code_without_delete(email, code):
                 raise HTTPException(status_code=400, detail="验证码错误或已过期")
             
-            # 更新密码
+            # 更新密码（哈希处理）
             hashed_password = hash_password(new_password)
             user.password_hash = hashed_password
             db.commit()
+            
+            # 密码重置成功后删除验证码
+            VerificationCodeService.clear_code(email)
             
             return {
                 "success": True,
                 "message": "密码重置成功",
                 "data": {
                     "email": email,
-                    "username": user.username
+                    "reset_time": datetime.now().isoformat()
                 }
             }
             

@@ -1,6 +1,11 @@
 from fastapi import FastAPI, WebSocket, Depends
 from contextlib import asynccontextmanager
 import logging
+from dotenv import load_dotenv
+import os
+
+# 加载环境变量
+load_dotenv()
 from app.websocket.manager import ConnectionManager
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.endpoints import friends, messages, keys, auth, signaling, avatar, security, local_storage, upload, user_status, user_profile

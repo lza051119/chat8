@@ -251,7 +251,9 @@ async function sendResetCode() {
     }
   } catch (e) {
     console.error('发送验证码失败:', e);
-    if (e.response?.data?.detail) {
+    if (e.response?.data?.message) {
+      error.value = e.response.data.message;
+    } else if (e.response?.data?.detail) {
       error.value = e.response.data.detail;
     } else {
       error.value = '发送验证码失败，请稍后重试';
@@ -283,7 +285,9 @@ async function verifyResetCode() {
     }
   } catch (e) {
     console.error('验证码验证失败:', e);
-    if (e.response?.data?.detail) {
+    if (e.response?.data?.message) {
+      error.value = e.response.data.message;
+    } else if (e.response?.data?.detail) {
       error.value = e.response.data.detail;
     } else {
       error.value = '验证码验证失败，请重试';
@@ -322,7 +326,9 @@ async function resetPassword() {
     }
   } catch (e) {
     console.error('密码重置失败:', e);
-    if (e.response?.data?.detail) {
+    if (e.response?.data?.message) {
+      error.value = e.response.data.message;
+    } else if (e.response?.data?.detail) {
       error.value = e.response.data.detail;
     } else {
       error.value = '密码重置失败，请重试';

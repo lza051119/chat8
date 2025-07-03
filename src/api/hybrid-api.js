@@ -150,10 +150,14 @@ const presenceAPI = {
 const uploadAPI = {
   uploadAvatar: (file) => {
     const formData = new FormData();
-    formData.append('avatar', file);
-    return api.post('/v1/upload/avatar', formData, {
+    formData.append('file', file);
+    return api.post('/v1/avatar/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
+  },
+  
+  deleteAvatar: () => {
+    return api.delete('/v1/avatar');
   },
   
   uploadImage: (formData) => {
@@ -223,6 +227,7 @@ export const hybridApi = {
   
   // 上传
   uploadAvatar: uploadAPI.uploadAvatar,
+  deleteAvatar: uploadAPI.deleteAvatar,
   uploadImage: uploadAPI.uploadImage,
   uploadFile: uploadAPI.uploadFile,
   
