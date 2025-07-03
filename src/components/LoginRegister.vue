@@ -30,10 +30,81 @@
         </button>
       </form>
       
+      <!-- 忘记密码链接 -->
+      <div v-if="isLogin && !showForgotPassword" class="forgot-password">
+        <button @click="showForgotPasswordForm" class="forgot-btn">
+          忘记密码？
+        </button>
+      </div>
+      
       <div class="switch">
         <span>{{ isLogin ? '没有账号？' : '已有账号？' }}</span>
         <button @click="toggleMode" class="switch-btn">
           {{ isLogin ? '注册' : '登录' }}
+        </button>
+      </div>
+      
+      <!-- 忘记密码表单 -->
+      <div v-if="showForgotPassword" class="forgot-password-form">
+        <h3>{{ forgotPasswordStep === 'email' ? '重置密码' : forgotPasswordStep === 'verify' ? '验证邮箱' : '设置新密码' }}</h3>
+        
+        <!-- 步骤1: 输入邮箱 -->
+        <form v-if="forgotPasswordStep === 'email'" @submit.prevent="sendResetCode" class="form">
+          <input 
+            v-model="resetEmail" 
+            type="email"
+            placeholder="请输入注册邮箱" 
+            required 
+            class="input"
+          />
+          <button type="submit" class="submit-btn" :disabled="isLoading">
+            {{ isLoading ? '发送中...' : '发送验证码' }}
+          </button>
+        </form>
+        
+        <!-- 步骤2: 验证验证码 -->
+        <form v-if="forgotPasswordStep === 'verify'" @submit.prevent="verifyResetCode" class="form">
+          <input 
+            v-model="verificationCode" 
+            placeholder="请输入6位验证码" 
+            required 
+            maxlength="6"
+            class="input"
+          />
+          <button type="submit" class="submit-btn" :disabled="isLoading">
+            {{ isLoading ? '验证中...' : '验证验证码' }}
+          </button>
+          <div class="resend-code">
+            <span v-if="countdown > 0">{{ countdown }}秒后可重新发送</span>
+            <button v-else @click="sendResetCode" type="button" class="resend-btn">
+              重新发送验证码
+            </button>
+          </div>
+        </form>
+        
+        <!-- 步骤3: 设置新密码 -->
+        <form v-if="forgotPasswordStep === 'reset'" @submit.prevent="resetPassword" class="form">
+          <input 
+            v-model="newPassword" 
+            type="password"
+            placeholder="请输入新密码" 
+            required 
+            class="input"
+          />
+          <input 
+            v-model="confirmPassword" 
+            type="password"
+            placeholder="确认新密码" 
+            required 
+            class="input"
+          />
+          <button type="submit" class="submit-btn" :disabled="isLoading">
+            {{ isLoading ? '重置中...' : '重置密码' }}
+          </button>
+        </form>
+        
+        <button @click="backToLogin" class="back-btn">
+          返回登录
         </button>
       </div>
       
@@ -44,8 +115,9 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, onUnmounted } from 'vue';
 import { login, register } from '../api';
+import api from '../api/hybrid-api';
 
 const emit = defineEmits(['login']);
 
@@ -55,6 +127,17 @@ const email = ref('');
 const password = ref('');
 const error = ref('');
 const success = ref('');
+
+// 忘记密码相关状态
+const showForgotPassword = ref(false);
+const forgotPasswordStep = ref('email'); // 'email', 'verify', 'reset'
+const resetEmail = ref('');
+const verificationCode = ref('');
+const newPassword = ref('');
+const confirmPassword = ref('');
+const isLoading = ref(false);
+const countdown = ref(0);
+let countdownTimer = null;
 
 function toggleMode() {
   isLogin.value = !isLogin.value;
@@ -104,6 +187,155 @@ async function handleSubmit() {
     }
   }
 }
+
+// 忘记密码相关方法
+function showForgotPasswordForm() {
+  showForgotPassword.value = true;
+  forgotPasswordStep.value = 'email';
+  resetForm();
+}
+
+function backToLogin() {
+  showForgotPassword.value = false;
+  forgotPasswordStep.value = 'email';
+  resetForm();
+}
+
+function resetForm() {
+  resetEmail.value = '';
+  verificationCode.value = '';
+  newPassword.value = '';
+  confirmPassword.value = '';
+  error.value = '';
+  success.value = '';
+  isLoading.value = false;
+  stopCountdown();
+}
+
+function startCountdown() {
+  countdown.value = 60;
+  countdownTimer = setInterval(() => {
+    countdown.value--;
+    if (countdown.value <= 0) {
+      stopCountdown();
+    }
+  }, 1000);
+}
+
+function stopCountdown() {
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+  countdown.value = 0;
+}
+
+async function sendResetCode() {
+  if (!resetEmail.value) {
+    error.value = '请输入邮箱地址';
+    return;
+  }
+  
+  isLoading.value = true;
+  error.value = '';
+  
+  try {
+    const response = await api.post('/v1/auth/forgot-password', {
+      email: resetEmail.value
+    });
+    
+    if (response.data.success) {
+      success.value = '验证码已发送到您的邮箱';
+      forgotPasswordStep.value = 'verify';
+      startCountdown();
+    }
+  } catch (e) {
+    console.error('发送验证码失败:', e);
+    if (e.response?.data?.detail) {
+      error.value = e.response.data.detail;
+    } else {
+      error.value = '发送验证码失败，请稍后重试';
+    }
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+async function verifyResetCode() {
+  if (!verificationCode.value || verificationCode.value.length !== 6) {
+    error.value = '请输入6位验证码';
+    return;
+  }
+  
+  isLoading.value = true;
+  error.value = '';
+  
+  try {
+    const response = await api.post('/v1/auth/verify-reset-code', {
+      email: resetEmail.value,
+      code: verificationCode.value
+    });
+    
+    if (response.data.success) {
+      success.value = '验证码验证成功';
+      forgotPasswordStep.value = 'reset';
+      stopCountdown();
+    }
+  } catch (e) {
+    console.error('验证码验证失败:', e);
+    if (e.response?.data?.detail) {
+      error.value = e.response.data.detail;
+    } else {
+      error.value = '验证码验证失败，请重试';
+    }
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+async function resetPassword() {
+  if (!newPassword.value || newPassword.value.length < 6) {
+    error.value = '密码长度至少6位';
+    return;
+  }
+  
+  if (newPassword.value !== confirmPassword.value) {
+    error.value = '两次输入的密码不一致';
+    return;
+  }
+  
+  isLoading.value = true;
+  error.value = '';
+  
+  try {
+    const response = await api.post('/v1/auth/reset-password', {
+      email: resetEmail.value,
+      code: verificationCode.value,
+      new_password: newPassword.value
+    });
+    
+    if (response.data.success) {
+      success.value = '密码重置成功，请使用新密码登录';
+      setTimeout(() => {
+        backToLogin();
+      }, 2000);
+    }
+  } catch (e) {
+    console.error('密码重置失败:', e);
+    if (e.response?.data?.detail) {
+      error.value = e.response.data.detail;
+    } else {
+      error.value = '密码重置失败，请重试';
+    }
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+// 组件卸载时清理定时器
+onUnmounted(() => {
+  stopCountdown();
+});
 </script>
 
 <style scoped>
@@ -171,5 +403,79 @@ async function handleSubmit() {
   color: #28a745;
   text-align: center;
   margin-top: 1rem;
+}
+
+/* 忘记密码相关样式 */
+.forgot-password {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.forgot-btn {
+  background: none;
+  border: none;
+  color: #007bff;
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: 0.9rem;
+}
+
+.forgot-btn:hover {
+  color: #0056b3;
+}
+
+.forgot-password-form {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #eee;
+}
+
+.forgot-password-form h3 {
+  text-align: center;
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.back-btn {
+  width: 100%;
+  padding: 0.75rem;
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  margin-top: 1rem;
+}
+
+.back-btn:hover {
+  background: #545b62;
+}
+
+.resend-code {
+  text-align: center;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.resend-btn {
+  background: none;
+  border: none;
+  color: #007bff;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.resend-btn:hover {
+  color: #0056b3;
+}
+
+.submit-btn:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+}
+
+.submit-btn:disabled:hover {
+  background: #6c757d;
 }
 </style>

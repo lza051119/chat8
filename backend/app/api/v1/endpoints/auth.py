@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
-from app.schemas.user import UserCreate, UserLogin, UserOut, ResponseModel
+from app.schemas.user import UserCreate, UserLogin, UserOut, ResponseModel, ForgotPasswordRequest, VerifyCodeRequest, ResetPasswordRequest
 from app.services.user_service import register_user, authenticate_user, search_users
+from app.services.password_reset_service import PasswordResetService
 from app.core.security import get_current_user, create_access_token
 from fastapi.security import OAuth2PasswordRequestForm
 from app.services import security_event_service
@@ -38,3 +39,19 @@ def refresh_token(current_user: UserOut = Depends(get_current_user)):
 @router.get('/users/search')
 def user_search(q: str, page: int = 1, limit: int = 20, current_user: UserOut = Depends(get_current_user)):
     return {"success": True, "data": search_users(q, page, limit)}
+
+# 密码重置相关API
+@router.post('/auth/forgot-password')
+async def forgot_password(request: ForgotPasswordRequest):
+    """发送密码重置验证码"""
+    return await PasswordResetService.send_reset_code(request.email)
+
+@router.post('/auth/verify-reset-code')
+def verify_reset_code(request: VerifyCodeRequest):
+    """验证重置验证码"""
+    return PasswordResetService.verify_reset_code(request.email, request.code)
+
+@router.post('/auth/reset-password')
+def reset_password(request: ResetPasswordRequest):
+    """重置密码"""
+    return PasswordResetService.reset_password(request.email, request.code, request.new_password)

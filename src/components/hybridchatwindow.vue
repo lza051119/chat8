@@ -85,8 +85,54 @@
             </div>
           </div>
           
+          <!-- 文件消息（messageType为file） -->
+          <div v-else-if="message.messageType === 'file'" class="message-file">
+            <div class="file-content">
+              <div class="file-icon">
+                <span class="icon">📄</span>
+              </div>
+              <div class="file-info">
+                <div class="file-name">{{ message.fileName || message.file_name || (message.file && message.file.name) || '未知文件' }}</div>
+                <div class="file-meta">{{ formatFileSize(message.fileSize || message.file_size || (message.file && message.file.size)) }}</div>
+                <!-- 调试信息 -->
+                <div v-if="debugMode" class="debug-info">
+                  <small style="color: #666; font-size: 10px;">
+                    filePath: {{ message.filePath || message.file_path || 'null' }}<br>
+                    fileName: {{ message.fileName || message.file_name || 'null' }}<br>
+                    messageType: {{ message.messageType || 'null' }}
+                  </small>
+                </div>
+              </div>
+              <div class="file-actions">
+                <button @click="downloadFile(message)" class="download-btn">下载</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 文件消息（type为file） -->
+          <div v-if="message.type === 'file'" class="message-file">
+            <div class="file-icon-container">
+              <i class="fas fa-file-alt file-icon"></i>
+            </div>
+            <div class="file-info">
+              <div class="file-name">{{ (message.file && message.file.name) || message.fileName || message.file_name || '未知文件' }}</div>
+              <div class="file-meta">{{ formatFileSize((message.file && message.file.size) || message.fileSize || message.file_size) }}</div>
+              <!-- 调试信息 -->
+              <div v-if="debugMode" class="debug-info">
+                <small style="color: #666; font-size: 10px;">
+                  filePath: {{ message.filePath || message.file_path || 'null' }}<br>
+                  fileName: {{ message.fileName || message.file_name || 'null' }}<br>
+                  type: {{ message.type || 'null' }}
+                </small>
+              </div>
+            </div>
+            <button @click="downloadFile(message)" class="download-btn">
+              <i class="fas fa-download"></i>
+            </button>
+          </div>
+
           <!-- 图片消息 -->
-          <div v-else-if="message.messageType === 'image'" class="message-image">
+          <div v-if="message.type === 'image'" class="message-image">
             <div class="image-container" :class="{ 'has-hidden-message': message.hiddenMessage }">
               <img 
                 v-if="message.filePath && message.messageType === 'image'" 
@@ -102,6 +148,12 @@
                 <span class="image-text">{{ message.content }}</span>
               </div>
               
+              <!-- 图片文件信息 -->
+              <div v-if="message.fileName || message.file_name || message.fileSize || message.file_size" class="image-file-info">
+                <div class="image-file-name">{{ message.fileName || message.file_name || '图片' }}</div>
+                <div v-if="message.fileSize || message.file_size" class="image-file-size">{{ formatFileSize(message.fileSize || message.file_size) }}</div>
+              </div>
+              
               <!-- 隐写术提示 -->
               <div v-if="message.hiddenMessage && !message.extractedText" class="steganography-hint">
                 <span class="hint-icon">🔐</span>
@@ -109,7 +161,7 @@
               </div>
               
               <!-- 显示提取的隐藏信息 -->
-              <div v-if="message.extractedText" 
+              <div v-if="message.extractedText && !message.decryptHidden" 
                    :class="[
                      'extracted-message',
                      {
@@ -242,6 +294,12 @@
                     <span class="image-icon">📷</span>
                     <span class="image-text">{{ message.content }}</span>
                   </div>
+                  
+                  <!-- 图片文件信息 -->
+                  <div v-if="message.fileName || message.file_name || message.fileSize || message.file_size" class="image-file-info">
+                    <div class="image-file-name">{{ message.fileName || message.file_name || '图片' }}</div>
+                    <div v-if="message.fileSize || message.file_size" class="image-file-size">{{ formatFileSize(message.fileSize || message.file_size) }}</div>
+                  </div>
                 </div>
                 
                 <div class="message-info">
@@ -315,6 +373,14 @@
           <i class="icon-decrypt"></i>
           图片解密
         </button>
+        <button 
+          v-if="currentLongPressMessage && currentLongPressMessage.extractedText && !currentLongPressMessage.extractedText.includes('解密失败') && !currentLongPressMessage.extractedText.includes('此消息无加密内容') && !currentLongPressMessage.decryptHidden"
+          @click="handleHideDecryptResult" 
+          class="menu-item"
+        >
+          <i class="icon-hide"></i>
+          收回解密
+        </button>
       </div>
     </div>
 
@@ -337,7 +403,7 @@
             <span class="hint-icon">🔐</span>
             <span class="hint-text">此图片包含隐藏信息</span>
           </div>
-          <div v-if="currentImageMessage?.extractedText" class="modal-extracted-message">
+          <div v-if="currentImageMessage?.extractedText && !currentImageMessage?.decryptHidden" class="modal-extracted-message">
             <div class="extracted-header">
               <span class="extracted-icon">📝</span>
               <span class="extracted-label">隐藏信息：</span>
@@ -346,7 +412,15 @@
           </div>
         </div>
         <div class="image-modal-footer">
-          <span class="image-info">{{ formatTime(currentImageMessage?.timestamp) }}</span>
+          <div class="image-info">
+            <span class="image-time">{{ formatTime(currentImageMessage?.timestamp) }}</span>
+            <span v-if="currentImageMessage?.fileName || currentImageMessage?.file_name" class="image-name">
+              {{ currentImageMessage.fileName || currentImageMessage.file_name }}
+            </span>
+            <span v-if="currentImageMessage?.fileSize || currentImageMessage?.file_size" class="image-size">
+              {{ formatFileSize(currentImageMessage.fileSize || currentImageMessage.file_size) }}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -364,6 +438,9 @@ import HybridMessageInput from './hybridmessageinput.vue';
 const router = useRouter();
 
 const messagesContainer = ref(null);
+
+// 调试模式（可以通过控制台切换）
+const debugMode = ref(false);
 
 // 历史记录相关状态
 const showHistory = ref(false);
@@ -398,6 +475,27 @@ const messages = computed(() => {
   if (!contact.value) return [];
   const msgs = hybridStore.getMessages(contact.value.id);
   console.log(`HybridChatWindow computed messages for ${contact.value.id}:`, msgs.length);
+  
+  // 调试模式下输出详细的消息信息
+  if (debugMode.value && msgs.length > 0) {
+    console.log('=== 消息调试信息 ===');
+    msgs.forEach((msg, index) => {
+      if (msg.messageType === 'file' || msg.type === 'file') {
+        console.log(`消息 ${index + 1}:`, {
+          id: msg.id,
+          messageType: msg.messageType,
+          type: msg.type,
+          filePath: msg.filePath,
+          file_path: msg.file_path,
+          fileName: msg.fileName,
+          file_name: msg.file_name,
+          content: msg.content
+        });
+      }
+    });
+    console.log('=== 消息调试信息结束 ===');
+  }
+  
   return msgs;
 });
 
@@ -442,6 +540,22 @@ onMounted(async () => {
     await loadHistoryMessages(contact.value.id);
   }
   scrollToBottom();
+  
+  // 在控制台提供调试功能
+  if (typeof window !== 'undefined') {
+    window.enableFileDebugMode = () => {
+      debugMode.value = true;
+      console.log('✅ 文件调试模式已启用');
+      console.log('💡 现在文件消息将显示详细的字段信息');
+    };
+    window.disableFileDebugMode = () => {
+      debugMode.value = false;
+      console.log('❌ 文件调试模式已禁用');
+    };
+    console.log('💡 调试提示: 在控制台输入以下命令:');
+    console.log('  - enableFileDebugMode() 启用文件调试模式');
+    console.log('  - disableFileDebugMode() 禁用文件调试模式');
+  }
 });
 
 async function loadHistoryMessages(friendId) {
@@ -561,6 +675,8 @@ function scrollToBottom() {
   }
 }
 
+
+
 async function handleMessageSent(messageData, callback) {
   // 在函数开始就定义tempMessage，确保在所有块中都能访问
   let tempMessage = null;
@@ -584,6 +700,13 @@ async function handleMessageSent(messageData, callback) {
   try {
     console.log('开始发送消息:', messageData);
     
+    // 处理文件消息
+    if (messageData.type === 'file') {
+      const result = await handleFileSent(messageData);
+      if (callback) callback(result);
+      return result;
+    }
+
     // 处理图片消息
     if (messageData.type === 'image') {
       const result = await handleImageSent(messageData);
@@ -676,6 +799,72 @@ async function handleMessageSent(messageData, callback) {
     const errorResult = { success: false, error: error.message };
     if (callback) callback(errorResult);
     return errorResult;
+  }
+}
+
+async function handleFileSent(messageData) {
+  const tempMessage = {
+    id: `temp_${Date.now()}`,
+    from: currentUser.value.id,
+    to: contact.value.id,
+    content: `[文件: ${messageData.fileName}]`,
+    messageType: 'file',
+    fileName: messageData.fileName,
+    fileSize: messageData.fileSize,
+    timestamp: new Date().toISOString(),
+    method: 'Server',
+    sending: true
+  };
+
+  try {
+    hybridStore.addMessage(contact.value.id, tempMessage);
+    await nextTick();
+    scrollToBottom();
+
+    const response = await hybridApi.uploadFile(messageData.file);
+    const result = response.data;
+
+    if (result && result.id) {
+      const finalMessage = {
+        ...tempMessage,
+        id: result.id,
+        content: result.content,
+        filePath: result.filePath,
+        fileName: result.fileName,
+        fileSize: result.fileSize,
+        messageType: result.messageType,
+        timestamp: result.timestamp,
+        sending: false
+      };
+
+      const messages = hybridStore.getMessages(contact.value.id);
+      const messageIndex = messages.findIndex(m => m.id === tempMessage.id);
+      if (messageIndex !== -1) {
+        messages[messageIndex] = finalMessage;
+      }
+
+      try {
+        await addMessage(finalMessage);
+      } catch (dbError) {
+        console.warn('保存文件消息到本地数据库失败:', dbError);
+      }
+
+      return { success: true, method: finalMessage.method };
+    } else {
+      const messages = hybridStore.getMessages(contact.value.id);
+      const messageIndex = messages.findIndex(m => m.id === tempMessage.id);
+      if (messageIndex !== -1) {
+        messages.splice(messageIndex, 1);
+      }
+      return { success: false, error: '发送失败：响应格式不正确' };
+    }
+  } catch (error) {
+    const messages = hybridStore.getMessages(contact.value.id);
+    const messageIndex = messages.findIndex(m => m.id === tempMessage.id);
+    if (messageIndex !== -1) {
+      messages.splice(messageIndex, 1);
+    }
+    return { success: false, error: error.message };
   }
 }
 
@@ -791,8 +980,11 @@ async function handleSteganographySent(messageData) {
     to: contact.value.id,
     content: messageData.content,
     imageUrl: messageData.imageUrl,
-    messageType: 'steganography',
+    filePath: messageData.filePath || messageData.imageUrl,
+    messageType: 'image',
     fileName: messageData.fileName,
+    hiddenMessage: true,
+    originalText: messageData.originalText || null,
     timestamp: new Date().toISOString(),
     method: 'Server',
     encrypted: false,
@@ -857,8 +1049,10 @@ async function handleSteganographySent(messageData) {
         to: finalMessage.to,
         content: finalMessage.content,
         messageType: finalMessage.messageType,
-        imageUrl: finalMessage.imageUrl,
+        filePath: finalMessage.filePath,
         fileName: finalMessage.fileName,
+        hiddenMessage: finalMessage.hiddenMessage || false,
+        originalText: finalMessage.originalText || null,
         method: finalMessage.method,
         encrypted: finalMessage.encrypted || false,
         timestamp: finalMessage.timestamp
@@ -1190,29 +1384,49 @@ function handleDecryptImage() {
   if (currentLongPressMessage.value) {
     const message = currentLongPressMessage.value;
     
-    // 检查是否为图片消息
-    if (message.type !== 'image') {
+    // 检查是否为图片消息或隐写术消息
+    if (message.messageType !== 'image' && message.messageType !== 'steganography') {
       console.log('非图片消息，无法解密');
       showImageContextMenu.value = false;
       return;
     }
     
-    // 检查是否包含隐藏信息
-    if (!message.hiddenMessage) {
-      // 设置无加密内容的提示
-      message.extractedText = '此消息无加密内容';
-      showImageContextMenu.value = false;
-      return;
-    }
+    // 每次都允许重新解密，不检查之前的解密结果
     
-    // 如果已经解密过，不重复解密
-    if (message.extractedText) {
-      showImageContextMenu.value = false;
-      return;
-    }
-    
-    // 执行解密
+    // 对于图片消息，总是尝试解密，不依赖hiddenMessage字段
+    // 因为该字段可能在数据库中没有正确设置
     extractHiddenMessage(message);
+  }
+  showImageContextMenu.value = false;
+}
+
+async function handleHideDecryptResult() {
+  if (currentLongPressMessage.value) {
+    const message = currentLongPressMessage.value;
+    
+    // 清除解密结果，隐藏解密信息
+    message.extractedText = null;
+    message.decryptHidden = true; // 标记用户主动收回了解密
+    
+    // 保存收回解密状态到数据库
+    try {
+      await fetch(`/api/v1/local-storage/messages/${message.id}/field`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          field_name: 'decrypt_hidden',
+          field_value: 'true'
+        })
+      });
+      console.log('收回解密状态已保存到数据库');
+    } catch (error) {
+      console.warn('保存收回解密状态失败:', error);
+    }
+    
+    console.log('已收回解密信息，解密结果已隐藏');
   }
   showImageContextMenu.value = false;
 }
@@ -1259,19 +1473,18 @@ onUnmounted(() => {
 
 // 提取隐写术隐藏信息
 async function extractHiddenMessage(message) {
-  if (message.extractedText) {
-    // 如果已经提取过，直接返回
-    return;
-  }
+  // 每次都重新解密，不检查之前的结果
   
   if (!message.filePath) {
     console.error('无法提取隐藏信息：缺少图片文件路径');
+    message.extractedText = '解密失败：缺少图片文件路径';
     return;
   }
   
   try {
     // 获取图片文件
     const imageUrl = getImageUrl(message.filePath);
+    console.log('尝试获取图片:', imageUrl);
     const response = await fetch(imageUrl);
     
     if (!response.ok) {
@@ -1286,13 +1499,16 @@ async function extractHiddenMessage(message) {
     formData.append('password', 'default_password'); // 使用默认密码
     
     // 调用隐写术提取API
+    console.log('调用隐写术API提取隐藏信息...');
     const extractResponse = await fetch('/api/steganography/extract', {
       method: 'POST',
       body: formData
     });
     
     if (!extractResponse.ok) {
-      throw new Error('提取隐藏信息失败');
+      const errorText = await extractResponse.text();
+      console.error('API错误:', errorText);
+      throw new Error(`提取隐藏信息失败 (${extractResponse.status})`);
     }
     
     const result = await extractResponse.json();
@@ -1301,14 +1517,46 @@ async function extractHiddenMessage(message) {
       // 更新消息对象，添加提取的文本
       message.extractedText = result.secret_message;
       console.log('成功提取隐藏信息:', result.secret_message);
+      
+      // 同时更新hiddenMessage字段，确保下次能正确识别
+      message.hiddenMessage = true;
+      
+      // 清除收回解密状态，因为用户重新解密了
+      message.decryptHidden = false;
+      
+      // 更新数据库中的收回解密状态
+      try {
+        await fetch(`/api/v1/local-storage/messages/${message.id}/field`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            field_name: 'decrypt_hidden',
+            field_value: 'false'
+          })
+        });
+        console.log('已清除收回解密状态');
+      } catch (error) {
+        console.warn('清除收回解密状态失败:', error);
+      }
+      
+      // 解密结果只保存在内存中，不持久化到数据库
+      console.log('解密信息已提取，仅保存在内存中');
     } else {
-      throw new Error('未找到隐藏信息');
+      // 如果API返回成功但没有找到隐藏信息
+      message.extractedText = '此消息无加密内容';
+      console.log('API返回成功但未找到隐藏信息');
     }
     
   } catch (error) {
      console.error('提取隐藏信息失败:', error);
      // 设置解密失败的提示信息
      message.extractedText = '解密失败：' + error.message;
+     
+     // 解密失败信息只保存在内存中，不持久化到数据库
+     console.log('解密失败信息仅保存在内存中');
    }
  }
 
@@ -1349,6 +1597,50 @@ function closeImageModal() {
   console.log('关闭图片放大模态框');
 }
 
+function formatFileSize(bytes) {
+  if (!bytes || bytes === 0 || isNaN(bytes)) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function downloadFile(message) {
+  console.log('=== 文件下载调试信息 ===');
+  console.log('消息对象:', message);
+  console.log('filePath:', message.filePath);
+  console.log('file_path:', message.file_path);
+  console.log('fileName:', message.fileName);
+  console.log('file_name:', message.file_name);
+  console.log('messageType:', message.messageType);
+  
+  // 兼容性处理：支持多种字段格式
+  const filePath = message.filePath || message.file_path;
+  const fileName = message.fileName || message.file_name || 'download';
+  
+  if (!filePath) {
+    console.error('文件路径为空，无法下载文件');
+    alert('文件路径为空，无法下载文件。请检查文件是否正确上传。');
+    return;
+  }
+  
+  console.log('使用的文件路径:', filePath);
+  console.log('使用的文件名:', fileName);
+  
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+  const url = `${API_BASE_URL}/files/${filePath}`;
+  
+  console.log('下载URL:', url);
+  
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', fileName);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  
+  console.log('=== 文件下载调试信息结束 ===');
+}
 
 </script>
 
@@ -1569,6 +1861,134 @@ function closeImageModal() {
   transform: scale(1.02);
 }
 
+.image-file-info {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.image-file-name {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.image-file-size {
+  color: #666;
+  font-size: 0.8rem;
+}
+
+/* 文件消息样式 */
+.message-file {
+  margin-bottom: 0.5rem;
+}
+
+.file-content {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: #f1f3f4;
+  border-radius: 8px;
+  max-width: 300px;
+}
+
+.message.sent .file-content {
+  background: #e0efff;
+}
+
+.file-icon .icon {
+  font-size: 2rem;
+  color: #007bff;
+}
+
+.file-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.file-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-meta {
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.download-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  background: #007bff;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.download-btn:hover {
+  background: #0056b3;
+}
+
+/* 文件消息样式 */
+.message-file {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: #f1f3f4;
+  border-radius: 8px;
+  max-width: 300px;
+}
+
+.message.sent .message-file {
+  background: #e0efff;
+}
+
+.file-icon-container {
+  font-size: 2rem;
+  color: #007bff;
+}
+
+.file-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.file-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-meta {
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.download-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  background: #007bff;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.download-btn:hover {
+  background: #0056b3;
+}
+
 /* 图片放大模态框样式 */
 .image-modal-overlay {
   position: fixed;
@@ -1659,8 +2079,25 @@ function closeImageModal() {
 }
 
 .image-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
   font-size: 0.875rem;
   color: #666;
+}
+
+.image-time {
+  font-weight: 500;
+}
+
+.image-name {
+  font-weight: 600;
+  color: #333;
+}
+
+.image-size {
+  color: #888;
+  font-size: 0.8rem;
 }
 
 .image-placeholder {
@@ -2058,6 +2495,11 @@ function closeImageModal() {
 
 .icon-decrypt::before {
   content: '🔓';
+  font-size: 16px;
+}
+
+.icon-hide::before {
+  content: '👁‍🗨';
   font-size: 16px;
 }
 

@@ -320,8 +320,26 @@ export const hybridStore = {
       return;
     }
     
-    // 处理消息，特别是语音通话记录
+    // 获取现有消息，用于保留已解密的状态
+    const existingMessages = state.conversations[userId].messages || [];
+    const existingMessagesMap = new Map();
+    
+    // 创建现有消息的映射，以便快速查找
+    existingMessages.forEach(msg => {
+      if (msg.id) {
+        existingMessagesMap.set(msg.id, msg);
+      }
+    });
+    // 处理消息，特别是语音通话记录，并保留已解密的状态
     const processedMessages = messages.map(message => {
+      // 查找现有消息中是否有相同ID的消息
+      const existingMessage = message.id ? existingMessagesMap.get(message.id) : null;
+      
+      // 如果找到现有消息，保留其extractedText字段
+      if (existingMessage && existingMessage.extractedText) {
+        message.extractedText = existingMessage.extractedText;
+      }
+      
       // 如果是语音通话记录，解析content字段
       if (message.messageType === 'voice_call' && message.content) {
         try {

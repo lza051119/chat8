@@ -110,6 +110,11 @@ class MessageDBService:
             except sqlite3.OperationalError:
                 pass  # 字段已存在
             
+            try:
+                cursor.execute('ALTER TABLE messages ADD COLUMN decrypt_hidden TEXT DEFAULT NULL')
+            except sqlite3.OperationalError:
+                pass  # 字段已存在
+            
             # 迁移旧的 hidden_message 字段到 hidding_message
             try:
                 # 检查是否存在旧字段
@@ -157,8 +162,8 @@ class MessageDBService:
                     message_data.get('method', 'Server'),
                     message_data.get('encrypted', False),
                     message_data.get('message_type', 'text'),
-                    message_data.get('file_path') if message_data.get('message_type') == 'image' else None,
-                    message_data.get('file_name') if message_data.get('message_type') == 'image' else None,
+                    message_data.get('file_path'),  # 保存所有类型的文件路径
+                    message_data.get('file_name'),  # 保存所有类型的文件名
                     message_data.get('hidding_message'),
                     message_data.get('is_burn_after_read', False),
                     message_data.get('readable_duration'),
@@ -251,6 +256,9 @@ class MessageDBService:
                         'messageType': safe_get(row, 'message_type', 'text'),
                         'filePath': safe_get(row, 'file_path'),
                         'fileName': safe_get(row, 'file_name'),
+                        'extractedText': safe_get(row, 'extracted_text'),
+                        'hiddenMessage': safe_get(row, 'hidding_message', False),
+                        'decryptHidden': safe_get(row, 'decrypt_hidden', False),
                         'is_burn_after_read': bool(row['is_burn_after_read']),
                         'readable_duration': row['readable_duration'],
                         'is_read': bool(row['is_read']),
@@ -303,6 +311,46 @@ class MessageDBService:
                 
         except Exception as e:
             print(f"标记消息已读失败: {e}")
+            return False
+    
+    @staticmethod
+    def update_message_field(user_id: int, message_id: str, field_name: str, field_value: any) -> bool:
+        """更新消息的特定字段"""
+        try:
+            with MessageDBService.get_db_connection(user_id) as conn:
+                cursor = conn.cursor()
+                
+                # 首先检查字段是否存在于表结构中
+                cursor.execute("PRAGMA table_info(messages)")
+                columns = [column[1] for column in cursor.fetchall()]
+                
+                # 如果字段不存在，先添加字段
+                if field_name not in columns:
+                    try:
+                        cursor.execute(f'ALTER TABLE messages ADD COLUMN {field_name} TEXT DEFAULT NULL')
+                        conn.commit()
+                    except sqlite3.OperationalError as e:
+                        print(f"添加字段失败: {e}")
+                        return False
+                
+                # 更新字段值
+                cursor.execute(f'''
+                    UPDATE messages 
+                    SET {field_name} = ?, updated_at = ?
+                    WHERE message_id = ? AND (from_user = ? OR to_user = ?)
+                ''', (
+                    field_value,
+                    datetime.now().isoformat(),
+                    message_id,
+                    user_id,
+                    user_id
+                ))
+                
+                conn.commit()
+                return cursor.rowcount > 0
+                
+        except Exception as e:
+            print(f"更新消息字段失败: {e}")
             return False
     
     @staticmethod

@@ -57,3 +57,16 @@ class UserProfileOut(UserProfileBase):
     
     class Config:
         from_attributes = True
+
+# 密码重置相关模型
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class VerifyCodeRequest(BaseModel):
+    email: str
+    code: str
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    code: str
+    new_password: str

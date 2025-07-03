@@ -10,3 +10,5 @@ PyJWT==2.10.1
 python-jose[cryptography]==3.5.0
 python-multipart==0.0.20
 Pillow==10.4.0
+fastapi-mail==1.4.1
+aiosmtplib==2.0.2

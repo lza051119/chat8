@@ -75,9 +75,10 @@ async def add_message(message: MessageCreate, current_user: UserOut = Depends(ge
             "readable_duration": message.destroy_after
         }
         
-        # 只有图片消息才添加文件相关字段
-        if message.message_type == 'image' and message.file_path:
+        # 添加文件相关字段（如果存在）
+        if message.file_path:
             message_data["file_path"] = message.file_path
+        if message.file_name:
             message_data["file_name"] = message.file_name
         
         # 为发送者和接收者都保存消息
@@ -200,6 +201,32 @@ async def mark_message_read(
             raise HTTPException(status_code=404, detail="消息未找到")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"标记消息已读失败: {str(e)}")
+
+class UpdateMessageFieldRequest(BaseModel):
+    field_name: str
+    field_value: str
+
+@router.put("/local-storage/messages/{message_id}/field")
+async def update_message_field(
+    message_id: str,
+    request: UpdateMessageFieldRequest,
+    current_user: UserOut = Depends(get_current_user)
+):
+    """更新消息的特定字段"""
+    try:
+        user_id = int(current_user.id)
+        success = MessageDBService.update_message_field(
+            user_id, 
+            message_id, 
+            request.field_name, 
+            request.field_value
+        )
+        if success:
+            return {"status": "success", "message": "消息字段已更新"}
+        else:
+            raise HTTPException(status_code=404, detail="消息未找到")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"更新消息字段失败: {str(e)}")
 
 @router.delete("/local-storage/messages/{message_id}")
 async def delete_message(

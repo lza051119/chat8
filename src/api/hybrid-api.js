@@ -160,6 +160,11 @@ const uploadAPI = {
     return api.post('/v1/upload/image', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
+  },
+  uploadFile: (formData) => {
+    return api.post('/v1/upload/file', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
   }
 };
 
@@ -219,6 +224,7 @@ export const hybridApi = {
   // 上传
   uploadAvatar: uploadAPI.uploadAvatar,
   uploadImage: uploadAPI.uploadImage,
+  uploadFile: uploadAPI.uploadFile,
   
   // 个人信息
   get: profileAPI.getProfile,

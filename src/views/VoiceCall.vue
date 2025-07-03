@@ -177,18 +177,18 @@ onMounted(async () => {
   await initializeCall();
 });
 
-onUnmounted(() => {
+onUnmounted(async () => {
   stopRingtone();
-  cleanup();
+  await cleanup();
 });
 
 // 监听通话状态变化
-watch(callStatus, (newStatus) => {
+watch(callStatus, async (newStatus) => {
   if (newStatus === 'active') {
     stopRingtone();
   } else if (newStatus === 'ended') {
     stopRingtone();
-    cleanup();
+    await cleanup();
   } else if (newStatus === 'ringing') {
     startRingtone();
   }
@@ -412,11 +412,22 @@ async function initializeCall() {
       console.log('[VoiceCall] 检测到新来电，开始接听');
       callStatus.value = 'connecting';
       try {
-        const result = await hybridMessaging.acceptVoiceCall(contact.value.id, callInfo.offer);
+        // 传递加密密钥（如果有）
+        const result = await hybridMessaging.acceptVoiceCall(
+          contact.value.id, 
+          callInfo.offer, 
+          callInfo.encryptionKey
+        );
         if (localAudio.value && result.localStream) {
           localAudio.value.srcObject = result.localStream;
           localStream.value = result.localStream;
         }
+        
+        // 显示加密状态
+        if (result.encryptionEnabled) {
+          console.log('[VoiceCall] 加密通话已启用');
+        }
+        
         console.log('[VoiceCall] 来电接听成功，等待连接建立');
       } catch (error) {
         console.error('[VoiceCall] 接听失败:', error);
@@ -597,7 +608,7 @@ function minimizeCall() {
   router.push('/chat');
 }
 
-function endCall() {
+async function endCall() {
   // 防止重复调用导致递归
   if (callStatus.value === 'ended') {
     console.log('[VoiceCall] 通话已结束，跳过重复调用');
@@ -610,15 +621,20 @@ function endCall() {
   const hybridMessaging = hybridStore.getHybridMessaging();
   if (hybridMessaging && contact.value) {
     console.log(`[VoiceCall] 发送通话结束信号给用户 ${contact.value.id}`);
-    hybridMessaging.endVoiceCall(contact.value.id);
+    try {
+      await hybridMessaging.endVoiceCall(contact.value.id);
+      console.log('[VoiceCall] 通话结束信号发送成功');
+    } catch (error) {
+      console.error('[VoiceCall] 发送通话结束信号失败:', error);
+    }
   }
   
-  cleanup();
+  await cleanup();
   // 移除自动跳转，让用户手动返回以避免界面刷新导致通话记录丢失
   // router.push('/chat');
 }
 
-function handleVoiceCallRejected({ fromUserId }) {
+async function handleVoiceCallRejected({ fromUserId }) {
   if (contact.value && fromUserId.toString() === contact.value.id.toString()) {
     console.log(`[语音通话] ${contact.value.username} 拒绝了通话`);
     callStatus.value = 'rejected';
@@ -631,7 +647,7 @@ function handleVoiceCallRejected({ fromUserId }) {
       // hybridMessaging.endVoiceCall(contact.value.id);
     }
     
-    cleanup();
+    await cleanup();
     
     // 显示拒绝提示后自动返回
     setTimeout(() => {
@@ -640,7 +656,7 @@ function handleVoiceCallRejected({ fromUserId }) {
   }
 }
 
-function cleanup() {
+async function cleanup() {
   console.log('[VoiceCall] 开始清理资源');
   
   // 停止响铃音效
@@ -664,37 +680,25 @@ function cleanup() {
     ringtoneTimer = null;
   }
   
-  // 不要清理全局的语音通话回调，因为其他用户可能还需要接收通话状态变化
-  // 只清理本地的回调引用
-  const hybridMessaging = hybridStore.getHybridMessaging();
-  if (hybridMessaging) {
-    console.log('[VoiceCall] 保留全局状态变化回调，仅清理本地引用');
-  }
-  
   // 清理通话信息
   hybridStore.clearCurrentCallInfo();
   
-  // 停止媒体流
-  if (localStream.value) {
-    localStream.value.getTracks().forEach(track => track.stop());
-    localStream.value = null;
-  }
-  
-  // 关闭WebRTC连接
-  if (peerConnection.value) {
-    peerConnection.value.close();
-    peerConnection.value = null;
-  }
-  
-  // 关闭音频上下文
-  if (audioContext.value) {
+  // 使用hybridMessaging的强制重置方法
+  const hybridMessaging = hybridStore.getHybridMessaging();
+  if (hybridMessaging) {
     try {
-      audioContext.value.close();
-      audioContext.value = null;
+      console.log('[VoiceCall] 调用强制重置语音通话状态');
+      await hybridMessaging.forceResetVoiceCallState();
+      console.log('[VoiceCall] 强制重置完成');
     } catch (error) {
-      console.error('[VoiceCall] 关闭音频上下文失败:', error);
+      console.error('[VoiceCall] 强制重置失败:', error);
     }
   }
+  
+  // 清理本地引用
+  localStream.value = null;
+  peerConnection.value = null;
+  audioContext.value = null;
   
   console.log('[VoiceCall] 资源清理完成');
 }

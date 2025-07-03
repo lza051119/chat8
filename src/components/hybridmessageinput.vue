@@ -95,6 +95,16 @@
         📷
       </button>
       
+      <!-- 文件发送按钮 -->
+      <button 
+        @click="selectFile" 
+        class="file-btn"
+        :disabled="sendStatus.sending"
+        title="发送文件"
+      >
+        📎
+      </button>
+      
       <button 
         @click="onSend" 
         :disabled="!canSend"
@@ -106,12 +116,20 @@
       </button>
     </div>
 
-    <!-- 隐藏的文件输入 -->
+    <!-- 隐藏的图片输入 -->
     <input 
       ref="fileInput" 
       type="file" 
       accept="image/*" 
       @change="handleImageSelect" 
+      style="display: none;"
+    />
+    
+    <!-- 隐藏的文件输入 -->
+    <input 
+      ref="genericFileInput" 
+      type="file" 
+      @change="handleFileSelect" 
       style="display: none;"
     />
 
@@ -162,6 +180,7 @@ const burnAfterSeconds = computed(() => {
 
 const messageInput = ref(null);
 const fileInput = ref(null);
+const genericFileInput = ref(null);
 const message = ref('');
 const showQuickActions = ref(false);
 const sendStatus = ref({
@@ -410,6 +429,10 @@ function selectImage() {
   fileInput.value?.click();
 }
 
+function selectFile() {
+  genericFileInput.value?.click();
+}
+
 async function handleImageSelect(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -459,6 +482,60 @@ async function handleImageSelect(event) {
   } catch (error) {
     sendStatus.value.error = error.message || '发送图片失败';
     console.error('发送图片失败:', error);
+  } finally {
+    sendStatus.value.sending = false;
+  }
+}
+
+async function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  // 验证文件大小 (20MB)
+  if (file.size > 20 * 1024 * 1024) {
+    alert('文件大小不能超过20MB');
+    return;
+  }
+
+  // 检查是否为禁止的文件类型
+  const forbiddenExtensions = ['.exe', '.bat', '.cmd', '.sh', '.php', '.asp', '.aspx', '.js', '.vbs', '.ps1'];
+  const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+  if (forbiddenExtensions.includes(fileExtension)) {
+    alert('不允许上传可执行文件或脚本文件');
+    return;
+  }
+
+  sendStatus.value.sending = true;
+  sendStatus.value.error = null;
+
+  try {
+    // 创建FormData
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('to_id', props.contact.id);
+    formData.append('message_type', 'file');
+
+    // 发送文件消息，等待结果
+    const result = await new Promise((resolve) => {
+      emit('send', { 
+        type: 'file', 
+        file: formData,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        messageType: 'file'
+      }, resolve);
+    });
+    
+    if (!result.success) {
+      throw new Error(result.error || '发送失败');
+    }
+    
+    // 清空文件输入
+    event.target.value = '';
+  } catch (error) {
+    sendStatus.value.error = error.message || '发送文件失败';
+    console.error('发送文件失败:', error);
   } finally {
     sendStatus.value.sending = false;
   }
@@ -720,7 +797,27 @@ defineExpose({
   transform: translateY(-1px);
 }
 
-.image-btn:disabled {
+.image-btn, .file-btn {
+  width: 40px;
+  height: 40px;
+  background: #f8f9fa;
+  color: #666;
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-btn:hover:not(:disabled), .file-btn:hover:not(:disabled) {
+  background: #e9ecef;
+  transform: translateY(-1px);
+}
+
+.image-btn:disabled, .file-btn:disabled {
   background: #f8f9fa;
   color: #ccc;
   cursor: not-allowed;
