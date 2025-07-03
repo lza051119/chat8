@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from app.db import models
 from datetime import datetime
 from sqlalchemy import or_
+from app.services.encryption_service import encryption_service
 
 def get_friends(db: Session, user_id: int, page: int = 1, limit: int = 50):
     # 使用关联查询获取好友信息
@@ -22,7 +23,8 @@ def get_friends(db: Session, user_id: int, page: int = 1, limit: int = 50):
                 'status': friend.friend_user.status,
                 'last_seen': friend.friend_user.last_seen,
                 'created_at': friend.created_at,
-                'online': friend.friend_user.status == 'online'
+                'online': friend.friend_user.status == 'online',
+                'public_key': friend.friend_user.public_key
             }
             friend_list.append(friend_data)
     
@@ -203,6 +205,13 @@ def handle_friend_request(db: Session, request_id: int, user_id: int, action: st
         db.add(friend1)
         db.add(friend2)
         friend_request.status = 'accepted'
+        
+        # 为双方建立加密会话
+        try:
+            encryption_service.establish_session(friend_request.from_user_id, friend_request.to_user_id)
+            encryption_service.establish_session(friend_request.to_user_id, friend_request.from_user_id)
+        except Exception as e:
+            print(f"Warning: Failed to establish encryption session: {e}")
     elif action == 'reject':
         # 拒绝申请
         friend_request.status = 'rejected'

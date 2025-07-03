@@ -3,14 +3,32 @@ from app.db import models
 from datetime import datetime, timedelta
 from typing import List
 from app.services.message_db_service import MessageDBService
+from app.services.encryption_service import encryption_service
 
-def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted: bool = True, method: str = 'Server', destroy_after: int = None, message_type: str = 'text', file_path: str = None, file_name: str = None, hidding_message: str = None, recipient_online: bool = False):
+def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted: bool = True, method: str = 'E2E', destroy_after: int = None, message_type: str = 'text', file_path: str = None, file_name: str = None, hidding_message: str = None, recipient_online: bool = False):
     # 服务器数据库只作为临时暂存，只有在接收方不在线时才保存
     utc_now = datetime.utcnow()
     
     # 对于图片消息，确保内容不为空
     if message_type == 'image' and not content:
         content = f"发送了图片: {file_name or '未知文件'}"
+    
+    # 端到端加密处理
+    encrypted_content = content
+    if encrypted and method == 'E2E':
+        try:
+            encryption_result = encryption_service.encrypt_message(from_id, to_id, content)
+            if encryption_result.get('success'):
+                encrypted_content = encryption_result['encrypted_message']
+            else:
+                print(f"Warning: Failed to encrypt message: {encryption_result.get('error')}")
+                # 如果加密失败，回退到明文传输
+                encrypted = False
+                method = 'Server'
+        except Exception as e:
+            print(f"Warning: Encryption error: {e}")
+            encrypted = False
+            method = 'Server'
     
     msg = None
     
@@ -20,7 +38,7 @@ def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted:
         msg = models.Message(
             from_id=from_id,
             to_id=to_id,
-            content=content,
+            content=encrypted_content,
             message_type=message_type,
             file_path=file_path,
             file_name=file_name,
@@ -50,7 +68,8 @@ def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted:
             'id': str(msg.id) if msg else f"{from_id}_{to_id}_{int(utc_now.timestamp())}",
             'from': from_id,
             'to': to_id,
-            'content': content,
+            'content': content,  # 本地存储明文
+            'encrypted_content': encrypted_content if encrypted else None,  # 存储加密内容
             'message_type': message_type,
             'file_path': file_path if message_type == 'image' else None,
             'file_name': file_name if message_type == 'image' else None,
@@ -69,6 +88,19 @@ def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted:
         pass
     
     return msg
+
+def decrypt_message_content(user_id: int, from_id: int, encrypted_content: str) -> str:
+    """解密消息内容"""
+    try:
+        decryption_result = encryption_service.decrypt_message(user_id, from_id, encrypted_content)
+        if decryption_result.get('success'):
+            return decryption_result['decrypted_message']
+        else:
+            print(f"Warning: Failed to decrypt message: {decryption_result.get('error')}")
+            return "[解密失败的消息]"
+    except Exception as e:
+        print(f"Warning: Decryption error: {e}")
+        return "[解密失败的消息]"
 
 def delete_server_message(db: Session, message_id: int):
     """删除服务器数据库中的消息（消息发送成功后调用）"""
@@ -93,6 +125,15 @@ def get_offline_messages(db: Session, user_id: int):
         offline_messages = db.query(models.Message).filter(
             models.Message.to_id == user_id
         ).order_by(models.Message.timestamp.asc()).all()
+        
+        # 解密加密的消息
+        for msg in offline_messages:
+            if msg.encrypted and msg.method == 'E2E':
+                try:
+                    decrypted_content = decrypt_message_content(user_id, msg.from_id, msg.content)
+                    msg.content = decrypted_content
+                except Exception as e:
+                    print(f"Warning: Failed to decrypt offline message {msg.id}: {e}")
         
         # 获取到离线消息
         return offline_messages

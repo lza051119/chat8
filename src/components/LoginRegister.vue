@@ -118,6 +118,7 @@
 import { ref, onUnmounted } from 'vue';
 import { login, register } from '../api';
 import api from '../api/hybrid-api';
+import { initializeUserEncryption, hasCompleteEncryptionKeys, validateUserKeys } from '../utils/encryption-keys';
 
 const emit = defineEmits(['login']);
 
@@ -156,13 +157,105 @@ async function handleSubmit() {
     if (isLogin.value) {
       // 登录逻辑
       const res = await login({ username: username.value, password: password.value });
-      emit('login', res.data.data.user, res.data.data.token);
+      const { user, token } = res.data.data;
+      
+      // 保存用户信息和token到localStorage
+      localStorage.setItem('user', JSON.stringify(user));
+      localStorage.setItem('token', token);
+      
+      // 检查用户是否有完整的加密密钥
+      const userId = parseInt(user.id);
+      const hasKeys = hasCompleteEncryptionKeys(userId);
+      
+      if (!hasKeys) {
+        console.log('🔐 用户缺少加密密钥，正在从服务器获取...');
+        
+        try {
+          // 从服务器获取用户的加密密钥信息
+          const keysResponse = await api.get('/v1/encryption/my-keys', {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          
+          if (keysResponse.data.success && keysResponse.data.data) {
+            const serverKeys = keysResponse.data.data;
+            
+            // 构造加密数据对象
+            const encryptionData = {
+              public_key: serverKeys.public_key,
+              registration_id: serverKeys.registration_id || userId,
+              prekey_bundle: serverKeys.prekey_bundle
+            };
+            
+            // 初始化用户加密环境
+            const encryptionInitSuccess = await initializeUserEncryption(userId, encryptionData);
+            
+            if (encryptionInitSuccess) {
+              console.log('✅ 用户加密密钥已从服务器同步');
+            } else {
+              console.warn('⚠️ 加密密钥同步失败，但不影响登录');
+            }
+          } else {
+            console.warn('⚠️ 服务器未返回有效的密钥信息');
+          }
+        } catch (keyError) {
+          console.warn('⚠️ 获取服务器密钥失败:', keyError.message);
+          // 不阻止登录，只是警告
+        }
+      } else {
+        // 验证现有密钥
+        const validation = validateUserKeys(userId);
+        if (validation.valid) {
+          console.log('✅ 用户密钥验证通过');
+        } else {
+          console.warn('⚠️ 本地密钥验证失败:', validation.message);
+        }
+      }
+      
+      emit('login', user, token);
       success.value = '登录成功！';
     } else {
       // 注册逻辑
-      await register({ username: username.value, email: email.value, password: password.value });
-      success.value = '注册成功，请登录';
-      isLogin.value = true;
+      const registerRes = await register({ username: username.value, email: email.value, password: password.value });
+      
+      // 处理注册成功后的密钥存储
+      if (registerRes.data.success && registerRes.data.data) {
+        const { user, token, keys } = registerRes.data.data;
+        
+        // 保存用户信息和token到localStorage
+        localStorage.setItem('user', JSON.stringify(user));
+        localStorage.setItem('token', token);
+        
+        // 如果有密钥信息，初始化用户加密环境
+        if (keys) {
+          // 构造加密数据对象
+          const encryptionData = {
+            public_key: keys.public_key,
+            registration_id: parseInt(user.id),
+            prekey_bundle: {
+              identity_key: keys.identity_key,
+              signed_prekey: keys.signed_prekey,
+              one_time_prekeys_count: keys.one_time_prekeys_count,
+              key_version: keys.key_version
+            }
+          };
+          
+          // 初始化用户加密环境（包括密钥保存和数据库初始化）
+          const encryptionInitSuccess = await initializeUserEncryption(parseInt(user.id), encryptionData);
+          
+          if (encryptionInitSuccess) {
+            console.log('✅ 注册成功，密钥已生成并保存');
+          } else {
+            console.warn('⚠️ 加密环境初始化失败，但不影响注册');
+          }
+        }
+        
+        // 自动登录
+        emit('login', user, token);
+        success.value = '注册成功！';
+      } else {
+        console.warn('⚠️ 注册响应格式异常');
+        error.value = '注册失败，服务器响应异常';
+      }
     }
   } catch (e) {
     console.error('网络请求错误:', e);

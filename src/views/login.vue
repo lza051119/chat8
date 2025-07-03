@@ -212,6 +212,8 @@ import { useRouter } from 'vue-router';
 import { hybridStore } from '../store/hybrid-store';
 import { authAPI } from '../api/hybrid-api';
 import api from '../api/hybrid-api';
+import { initializeUserEncryption, hasCompleteEncryptionKeys, validateUserKeys } from '../utils/encryption-keys';
+import { initDatabase } from '../client_db/database';
 
 const router = useRouter();
 
@@ -273,6 +275,48 @@ async function handleLogin() {
     if (!hybridStore.user || !hybridStore.user.id) {
       errorMessage.value = '用户信息验证失败，请重试';
       return;
+    }
+    
+    // 检查用户是否拥有完整的加密密钥
+    const hasKeys = hasCompleteEncryptionKeys(hybridStore.user.id);
+    
+    if (!hasKeys) {
+      console.log('用户缺少加密密钥，尝试从服务器获取');
+      try {
+        // 从服务器获取用户的公钥和私钥
+        const keyResponse = await authAPI.getUserKeys(hybridStore.user.id);
+        if (keyResponse.data && keyResponse.data.public_key) {
+          // 初始化用户加密环境
+          await initializeUserEncryption(
+            hybridStore.user,
+            hybridStore.token,
+            keyResponse.data.public_key,
+            keyResponse.data.registration_id || hybridStore.user.id
+          );
+          console.log('用户加密环境初始化完成');
+        } else {
+          console.warn('服务器未返回有效的密钥信息');
+        }
+      } catch (keyError) {
+        console.error('获取用户密钥失败:', keyError);
+        // 密钥获取失败不阻止登录，但会记录警告
+      }
+    } else {
+      // 验证现有密钥的有效性
+      const isValid = validateUserKeys(hybridStore.user.id);
+      if (!isValid) {
+        console.warn('本地密钥验证失败，可能需要重新获取');
+      } else {
+        console.log('本地密钥验证通过');
+      }
+      
+      // 确保数据库已初始化
+      try {
+        await initDatabase();
+        console.log('本地数据库初始化完成');
+      } catch (dbError) {
+        console.error('数据库初始化失败:', dbError);
+      }
     }
     
     console.log('登录成功，跳转到聊天页面');

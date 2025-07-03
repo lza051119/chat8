@@ -463,6 +463,7 @@ async function handleImageSelect(event) {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('to_id', props.contact.id);
+    formData.append('message_type', 'image');
 
     // 发送图片，等待结果
     const result = await new Promise((resolve) => {

@@ -8,7 +8,7 @@ import os
 load_dotenv()
 from app.websocket.manager import ConnectionManager
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1.endpoints import friends, messages, keys, auth, signaling, avatar, security, local_storage, upload, user_status, user_profile
+from app.api.v1.endpoints import friends, messages, keys, auth, signaling, avatar, security, local_storage, upload, user_status, user_profile, encryption, user_keys
 from app.api import steganography
 from app.websocket.events import websocket_endpoint
 from fastapi.staticfiles import StaticFiles
@@ -111,6 +111,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(friends.router, prefix="/api/v1")
 app.include_router(messages.router, prefix="/api/v1")
 app.include_router(keys.router, prefix="/api/v1")
+app.include_router(user_keys.router, prefix="/api/v1")
 app.include_router(signaling.router, prefix="/api/v1")
 app.include_router(avatar.router, prefix="/api/v1")
 app.include_router(security.router, prefix="/api/v1")
@@ -118,6 +119,7 @@ app.include_router(user_status.router, prefix="/api/v1")
 app.include_router(user_profile.router, prefix="/api/v1")
 app.include_router(local_storage.router, prefix="/api/v1")
 app.include_router(upload.router, prefix="/api/v1")
+app.include_router(encryption.router, prefix="/api/v1/encryption")
 app.include_router(steganography.router, prefix="/api/steganography", tags=["steganography"])
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

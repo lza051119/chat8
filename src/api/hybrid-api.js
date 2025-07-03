@@ -50,7 +50,10 @@ export const authAPI = {
   refreshToken: () => api.post('/v1/auth/refresh'),
   
   // 获取用户信息
-  getUserInfo: () => api.get('/v1/auth/me')
+  getUserInfo: () => api.get('/v1/auth/me'),
+  
+  // 获取用户加密密钥
+  getUserKeys: (userId) => api.get(`/v1/encryption/my-keys`)
 };
 
 // 联系人相关API
@@ -194,6 +197,7 @@ const profileAPI = {
 export const hybridApi = {
   // 认证相关
   ...authAPI,
+  getUserKeys: authAPI.getUserKeys,
   
   // 联系人相关
   getContacts: contactAPI.getContacts,

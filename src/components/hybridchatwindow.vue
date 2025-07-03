@@ -132,7 +132,7 @@
           </div>
 
           <!-- 图片消息 -->
-          <div v-if="message.type === 'image'" class="message-image">
+          <div v-if="message.messageType === 'image'" class="message-image">
             <div class="image-container" :class="{ 'has-hidden-message': message.hiddenMessage }">
               <img 
                 v-if="message.filePath && message.messageType === 'image'" 

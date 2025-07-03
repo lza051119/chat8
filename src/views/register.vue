@@ -137,6 +137,7 @@ import { ref, reactive, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { hybridStore } from '../store/hybrid-store';
 import { authAPI } from '../api/hybrid-api';
+import { initializeUserEncryption } from '../utils/encryption-keys';
 
 const router = useRouter();
 
@@ -180,6 +181,20 @@ async function handleRegister() {
 
     // 注册成功，设置用户信息（异步方法）
     await hybridStore.setUser(response.data.user, response.data.token);
+
+    // 初始化用户加密环境
+    try {
+      await initializeUserEncryption(
+        response.data.user,
+        response.data.token,
+        response.data.public_key,
+        response.data.registration_id || response.data.user.id
+      );
+      console.log('用户加密环境初始化完成');
+    } catch (encryptionError) {
+      console.error('加密环境初始化失败:', encryptionError);
+      // 加密初始化失败不阻止注册流程，但会记录错误
+    }
 
     // 跳转到聊天页面
     router.push('/chat');
