@@ -1,0 +1,506 @@
+<template>
+  <div class="login-page">
+    <div class="background-shapes">
+      <div class="shape shape1"></div>
+      <div class="shape shape2"></div>
+      <div class="shape shape3"></div>
+      <div class="shape shape4"></div>
+      <div class="shape shape5"></div>
+      <div class="shape shape6"></div>
+    </div>
+    <div class="login-container">
+      <div class="features-panel">
+        <div class="app-branding">
+          <h1 class="app-title">Chat8</h1>
+          <p class="app-subtitle">安全 &middot; 混合 &middot; 智能</p>
+        </div>
+        <div class="feature-list">
+          <div class="feature-item">
+            <span class="feature-icon">🔗</span>
+            <div class="feature-content">
+              <strong>P2P直连</strong>
+              <p>在线用户之间直接通信，低延迟高隐私</p>
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">📡</span>
+            <div class="feature-content">
+              <strong>服务器转发</strong>
+              <p>离线用户消息存储转发，确保送达</p>
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">⚡</span>
+            <div class="feature-content">
+              <strong>智能切换</strong>
+              <p>根据网络状况自动选择最优传输方式</p>
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">🔒</span>
+            <div class="feature-content">
+              <strong>端到端加密</strong>
+              <p>消息全程加密保护，保障通信安全</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="login-form-wrapper">
+        <div class="login-form">
+          <h2>欢迎回来！</h2>
+          <p class="form-subtitle">“在这里，你的秘密比CEO的年终奖还安全。”</p>
+          
+          <form @submit.prevent="handleLogin">
+            <div class="form-group">
+              <input
+                id="username"
+                v-model="loginForm.username"
+                type="text"
+                placeholder=" "
+                required
+                class="form-input"
+              />
+              <label for="username">用户名</label>
+            </div>
+
+            <div class="form-group">
+              <input
+                id="password"
+                v-model="loginForm.password"
+                type="password"
+                placeholder=" "
+                required
+                class="form-input"
+              />
+              <label for="password">密码</label>
+            </div>
+
+            <div class="form-options">
+              <label class="checkbox-label">
+                <input
+                  v-model="loginForm.rememberMe"
+                  type="checkbox"
+                  class="checkbox"
+                />
+                <span>记住我（不推荐在公共电脑上使用）</span>
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              :disabled="isLoading || isBlocked"
+              class="login-btn"
+            >
+              <span v-if="!isLoading && !isBlocked">安全登录</span>
+              <span v-else-if="isBlocked">已被锁定</span>
+              <div v-else class="loading-spinner"></div>
+            </button>
+
+            <div v-if="errorMessage" class="error-message">
+              {{ errorMessage }}
+            </div>
+          </form>
+
+          <div class="login-footer">
+            <p>还没有账号？ 
+              <router-link to="/register" class="register-link">加入我们，一起保守秘密</router-link>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive } from 'vue';
+import { useRouter } from 'vue-router';
+import { hybridStore } from '../store/hybrid-store';
+import { authAPI } from '../api/hybrid-api';
+
+const router = useRouter();
+
+const isLoading = ref(false);
+const errorMessage = ref('');
+const loginAttempts = ref(0);
+const maxAttempts = 3;
+const isBlocked = ref(false);
+
+const loginForm = reactive({
+  username: '',
+  password: '',
+  rememberMe: false
+});
+
+async function handleLogin() {
+  if (isLoading.value) return;
+
+  if (isBlocked.value) {
+    errorMessage.value = `登录失败次数过多，请刷新页面重试`;
+    return;
+  }
+
+  if (!loginForm.username || !loginForm.password) {
+    errorMessage.value = '请输入用户名和密码';
+    return;
+  }
+
+  isLoading.value = true;
+  errorMessage.value = '';
+
+  try {
+    const response = await authAPI.login({
+      username: loginForm.username,
+      password: loginForm.password
+    });
+
+    // 设置用户信息到store（现在是异步方法）
+    const setUserSuccess = await hybridStore.setUser(response.data.data.user, response.data.data.token);
+    
+    if (!setUserSuccess) {
+      errorMessage.value = '用户信息设置失败，请重试';
+      return;
+    }
+    
+    // 验证用户信息是否正确设置
+    if (!hybridStore.user || !hybridStore.user.id) {
+      errorMessage.value = '用户信息验证失败，请重试';
+      return;
+    }
+    
+    console.log('登录成功，跳转到聊天页面');
+    // 跳转到聊天页面
+    router.push('/chat');
+
+  } catch (error) {
+    console.error('登录失败:', error);
+    
+    // 增加失败次数
+    loginAttempts.value++;
+    
+    if (error.response) {
+      // 服务器返回了错误响应
+      const status = error.response.status;
+      if (status === 401) {
+        const remainingAttempts = maxAttempts - loginAttempts.value;
+        if (remainingAttempts > 0) {
+          errorMessage.value = `用户名或密码错误，还有 ${remainingAttempts} 次机会`;
+        } else {
+          errorMessage.value = '用户名或密码错误，已达到最大尝试次数';
+          isBlocked.value = true;
+        }
+      } else if (status === 500) {
+        errorMessage.value = '服务器内部错误，请稍后重试';
+      } else {
+        errorMessage.value = error.response.data?.message || '登录失败，请重试';
+      }
+    } else if (error.request) {
+      // 网络错误
+      errorMessage.value = '无法连接到服务器，请检查网络连接';
+    } else {
+      // 其他错误
+      errorMessage.value = '登录失败，请重试';
+    }
+    
+    // 检查是否达到最大尝试次数
+    if (loginAttempts.value >= maxAttempts && !isBlocked.value) {
+      isBlocked.value = true;
+      errorMessage.value = '登录失败次数过多，请刷新页面重试';
+    }
+  } finally {
+    isLoading.value = false;
+  }
+}
+</script>
+
+<style scoped>
+.login-page {
+  min-height: 100vh;
+  background-color: #f0f2f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.background-shapes {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.shape {
+  position: absolute;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15), rgba(118, 75, 162, 0.15));
+  animation: float 20s infinite ease-in-out;
+}
+
+.shape1 { width: 220px; height: 220px; top: 10%; left: 15%; animation-duration: 25s; }
+.shape2 { width: 100px; height: 100px; top: 70%; left: 30%; animation-duration: 18s; animation-delay: 3s; }
+.shape3 { width: 150px; height: 150px; top: 30%; left: 80%; animation-duration: 22s; animation-delay: 5s; }
+.shape4 { width: 50px; height: 50px; top: 80%; left: 60%; animation-duration: 15s; animation-delay: 1s; }
+.shape5 { width: 90px; height: 90px; top: 50%; left: 50%; animation-duration: 28s; animation-delay: 4s; }
+.shape6 { width: 60px; height: 60px; top: 15%; left: 40%; animation-duration: 16s; animation-delay: 7s; }
+
+
+@keyframes float {
+  0% { transform: translateY(0px) rotate(0deg) scale(1); }
+  50% { transform: translateY(-30px) rotate(180deg) scale(1.05); }
+  100% { transform: translateY(0px) rotate(360deg) scale(1); }
+}
+
+.login-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  max-width: 980px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 1.5rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  z-index: 1;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.features-panel {
+  padding: 4rem;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.app-branding {
+  margin-bottom: 3rem;
+}
+
+.app-title {
+  font-size: 3rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem 0;
+}
+
+.app-subtitle {
+  font-size: 1.25rem;
+  opacity: 0.8;
+  margin: 0;
+}
+
+.feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.feature-item {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.feature-icon {
+  font-size: 2rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.feature-content strong {
+  display: block;
+  font-size: 1.1rem;
+  margin-bottom: 0.25rem;
+}
+
+.feature-content p {
+  margin: 0;
+  opacity: 0.8;
+  font-size: 0.9rem;
+}
+
+.login-form-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+}
+
+.login-form {
+  width: 100%;
+  max-width: 400px;
+}
+
+.login-form h2 {
+  font-size: 2rem;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 0.5rem 0;
+}
+
+.form-subtitle {
+  color: #666;
+  margin: 0 0 2.5rem 0;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+  position: relative;
+}
+
+.form-input {
+  width: 100%;
+  padding: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+  background-color: white;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.form-group label {
+  position: absolute;
+  top: 50%;
+  left: 1rem;
+  transform: translateY(-50%);
+  color: #999;
+  padding: 0 0.25rem;
+  transition: all 0.2s ease-in-out;
+  pointer-events: none;
+  background-color: white;
+}
+
+.form-input:focus + label,
+.form-input:not(:placeholder-shown) + label {
+  top: 0;
+  font-size: 0.75rem;
+  color: #667eea;
+}
+
+.form-options {
+  margin-bottom: 2rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.checkbox {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #667eea;
+}
+
+.login-btn {
+  width: 100%;
+  padding: 1rem;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 50px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.login-btn:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.login-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid transparent;
+  border-top: 2px solid white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.error-message {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #ffeded;
+  color: #d93025;
+  border: 1px solid #f8d7da;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.login-footer {
+  text-align: center;
+  margin-top: 2rem;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.register-link {
+  color: #667eea;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.register-link:hover {
+  text-decoration: underline;
+}
+
+/* 响应式设计 */
+@media (max-width: 992px) {
+  .login-container {
+    grid-template-columns: 1fr;
+    max-width: 450px;
+  }
+  .features-panel {
+    display: none;
+  }
+  .login-form-wrapper {
+    padding: 2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-page { padding: 1rem; }
+  .login-form-wrapper { padding: 1.5rem; }
+  .login-form h2 { font-size: 1.5rem; }
+  .form-subtitle { font-size: 0.9rem; margin-bottom: 2rem; }
+}
+</style>
