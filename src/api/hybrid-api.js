@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getChinaTimeISO } from '../utils/timeUtils.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
@@ -124,7 +125,7 @@ const presenceAPI = {
   // 发送心跳
   heartbeat: () => {
     return api.post('/v1/user-status/heartbeat', {
-      timestamp: new Date().toISOString()
+      timestamp: getChinaTimeISO()
     });
   },
   

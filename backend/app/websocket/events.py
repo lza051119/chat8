@@ -51,6 +51,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, manager: Connec
                 await handle_webrtc_signaling(message, user_id, manager)
             elif message.get('type') in ['voice_call_offer', 'voice_call_answer', 'voice_call_ice_candidate', 'voice_call_rejected', 'voice_call_ended']:
                 await handle_voice_call_signaling(message, user_id, manager)
+            elif message.get('type') in ['video_call_offer', 'video_call_answer', 'video_call_ice_candidate', 'video_call_rejected', 'video_call_ended', 'video_call_toggle']:
+                await handle_video_call_signaling(message, user_id, manager)
             elif message.get('type') == 'heartbeat':
                 # 更新用户心跳时间
                 try:
@@ -427,5 +429,45 @@ async def handle_voice_call_signaling(msg, from_id, manager: ConnectionManager):
         await ws.send_text(json.dumps(forward_msg))
     else:
         print(f"[语音通话] 目标用户 {to_id} 不在线，无法转发信令 {msg['type']}")
+
+async def handle_video_call_signaling(msg, from_id, manager: ConnectionManager):
+    """处理视频通话信令消息"""
+    to_id = msg.get("to_id")
+    ws = manager.get(to_id)
+    if ws:
+        # 构建转发给目标客户端的消息，保持与前端期望的格式一致
+        forward_msg = {
+            "type": msg["type"],
+            "from_id": from_id,
+            "to_id": to_id
+        }
+        
+        # 根据消息类型添加相应的数据
+        if msg["type"] == "video_call_offer":
+            forward_msg["call_id"] = msg.get("call_id")
+            forward_msg["payload"] = msg.get("payload")
+            forward_msg["offer"] = msg.get("payload")  # 兼容性字段
+            forward_msg["fromUserId"] = from_id
+            forward_msg["toUserId"] = to_id
+            # 添加加密密钥支持
+            if msg.get("encryption_key"):
+                forward_msg["encryption_key"] = msg.get("encryption_key")
+        elif msg["type"] == "video_call_answer":
+            forward_msg["payload"] = msg.get("payload")
+            forward_msg["answer"] = msg.get("payload")  # 兼容性字段
+        elif msg["type"] == "video_call_ice_candidate":
+            forward_msg["payload"] = msg.get("payload")
+            forward_msg["candidate"] = msg.get("payload")  # 兼容性字段
+        elif msg["type"] in ["video_call_rejected", "video_call_ended"]:
+            forward_msg["reason"] = msg.get("reason", "")
+            forward_msg["payload"] = msg.get("payload")
+        elif msg["type"] == "video_call_toggle":
+            forward_msg["payload"] = msg.get("payload")
+        
+        print(f"[视频通话] 转发信令 {msg['type']} 从用户 {from_id} 到用户 {to_id}")
+        print(f"[视频通话] 转发消息内容: {forward_msg}")
+        await ws.send_text(json.dumps(forward_msg))
+    else:
+        print(f"[视频通话] 目标用户 {to_id} 不在线，无法转发信令 {msg['type']}")
 
 # 状态管理服务已删除

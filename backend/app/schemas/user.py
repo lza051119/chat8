@@ -61,6 +61,19 @@ class UserProfileOut(UserProfileBase):
     class Config:
         from_attributes = True
 
+class UserProfileWithUserInfo(UserProfileBase):
+    """包含用户基本信息的个人资料"""
+    id: int
+    user_id: int
+    username: str
+    email: str
+    avatar: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
 # 密码重置相关模型
 class ForgotPasswordRequest(BaseModel):
     email: str

@@ -9,27 +9,32 @@ const routes = [
   {
     path: '/login',
     name: 'Login',
-    component: () => import('../views/Login.vue')
+    component: () => import('../views/login.vue')
   },
   {
     path: '/register',
     name: 'Register',
-    component: () => import('../views/Register.vue')
+    component: () => import('../views/register.vue')
   },
   {
     path: '/chat',
     name: 'HybridChatMain',
-    component: () => import('../views/HybridChatMain.vue')
+    component: () => import('../views/hybridchatmain.vue')
   },
   {
     path: '/settings',
     name: 'Settings',
-    component: () => import('../views/Settings.vue')
+    component: () => import('../views/settings.vue')
   },
   {
     path: '/voice-call/:contactId?',
     name: 'VoiceCall',
     component: () => import('../views/VoiceCall.vue')
+  },
+  {
+    path: '/video-call/:contactId?',
+    name: 'VideoCall',
+    component: () => import('../components/VideoCall.vue')
   },
   {
     path: '/steganography',
@@ -38,11 +43,11 @@ const routes = [
   },
   {
     path: '/dev/chat',
-    component: () => import('../views/HybridChatMain.vue')
+    component: () => import('../views/hybridchatmain.vue')
   },
   {
     path: '/dev/settings',
-    component: () => import('../views/Settings.vue')
+    component: () => import('../views/settings.vue')
   }
 ];
 

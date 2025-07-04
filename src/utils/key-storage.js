@@ -4,7 +4,7 @@
  */
 
 // 密钥存储的键名前缀
-const KEY_PREFIX = 'chat8_key_';
+const KEY_PREFIX = 'whisper_key_';
 
 /**
  * 获取本地存储的密钥

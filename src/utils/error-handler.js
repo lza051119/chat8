@@ -1,4 +1,5 @@
 import logger from './logger';
+import { getChinaTimeISO, generateTempMessageId } from './timeUtils.js';
 
 /**
  * 错误类型枚举
@@ -23,7 +24,7 @@ export class AppError extends Error {
     this.type = type;
     this.originalError = originalError;
     this.context = context;
-    this.timestamp = new Date().toISOString();
+    this.timestamp = getChinaTimeISO();
   }
 
   /**

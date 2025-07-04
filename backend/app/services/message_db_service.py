@@ -2,9 +2,12 @@ import sqlite3
 import os
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Optional, Tuple
 from contextlib import contextmanager
+
+# 中国时区
+CHINA_TZ = timezone(timedelta(hours=8))
 
 # 数据库存储目录
 # 使用与原JSON文件相同的路径：app/local_storage/messages
@@ -165,7 +168,7 @@ class MessageDBService:
                     message_data.get('to'),
                     message_data.get('content'),
                     message_data.get('timestamp'),
-                    datetime.now().isoformat(),
+                    datetime.now(CHINA_TZ).isoformat(),
                     message_data.get('method', 'Server'),
                     message_data.get('encrypted', False),
                     message_data.get('message_type', 'text'),
@@ -179,7 +182,7 @@ class MessageDBService:
                     message_data.get('call_status'),
                     message_data.get('call_start_time'),
                     message_data.get('call_end_time'),
-                    datetime.now().isoformat()
+                    datetime.now(CHINA_TZ).isoformat()
                 )
                 
                 cursor.execute('''
@@ -338,8 +341,8 @@ class MessageDBService:
                     SET is_read = TRUE, read_time = ?, updated_at = ?
                     WHERE message_id = ? AND to_user = ?
                 ''', (
-                    datetime.now().isoformat(),
-                    datetime.now().isoformat(),
+                    datetime.now(CHINA_TZ).isoformat(),
+                    datetime.now(CHINA_TZ).isoformat(),
                     message_id,
                     user_id
                 ))
@@ -378,7 +381,7 @@ class MessageDBService:
                     WHERE message_id = ? AND (from_user = ? OR to_user = ?)
                 ''', (
                     field_value,
-                    datetime.now().isoformat(),
+                    datetime.now(CHINA_TZ).isoformat(),
                     message_id,
                     user_id,
                     user_id
@@ -403,7 +406,7 @@ class MessageDBService:
                     SET is_deleted = TRUE, updated_at = ?
                     WHERE message_id = ? AND (from_user = ? OR to_user = ?)
                 ''', (
-                    datetime.now().isoformat(),
+                    datetime.now(CHINA_TZ).isoformat(),
                     message_id,
                     user_id,
                     user_id

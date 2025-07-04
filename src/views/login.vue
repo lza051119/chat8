@@ -11,7 +11,7 @@
     <div class="login-container">
       <div class="features-panel">
         <div class="app-branding">
-          <h1 class="app-title">Chat8</h1>
+          <h1 class="app-title">Whisper</h1>
           <p class="app-subtitle">安全 &middot; 混合 &middot; 智能</p>
         </div>
         <div class="feature-list">

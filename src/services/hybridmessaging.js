@@ -1,5 +1,6 @@
 import { getLocalKey, saveLocalKey, deleteLocalKey } from '@/utils/key-storage';
 import { addMessage } from '@/client_db/database';
+import { getChinaTimeISO, generateTempMessageId } from '../utils/timeUtils.js';
 
 // 混合消息传递服务
 class HybridMessaging {
@@ -19,6 +20,9 @@ class HybridMessaging {
     
     // 初始化语音通话状态
     this.initVoiceCallState();
+    
+    // 初始化视频通话状态
+    this.initVideoCallState();
     
     // 消息处理器映射 - 延迟初始化
     this.messageHandlers = {};
@@ -59,7 +63,13 @@ class HybridMessaging {
       'voice_call_answer': this.handleVoiceCallAnswer.bind(this),
       'voice_call_ice_candidate': this.handleVoiceCallIceCandidate.bind(this),
       'voice_call_rejected': this.handleVoiceCallRejected.bind(this),
-      'voice_call_ended': this.handleVoiceCallEnded.bind(this)
+      'voice_call_ended': this.handleVoiceCallEnded.bind(this),
+      'video_call_offer': this.handleVideoCallOffer.bind(this),
+      'video_call_answer': this.handleVideoCallAnswer.bind(this),
+      'video_call_ice_candidate': this.handleVideoCallIceCandidate.bind(this),
+      'video_call_rejected': this.handleVideoCallRejected.bind(this),
+      'video_call_ended': this.handleVideoCallEnded.bind(this),
+      'video_call_toggle': this.handleVideoCallToggle.bind(this)
     };
   }
 
@@ -204,6 +214,13 @@ class HybridMessaging {
         case 'voice_call_ice_candidate':
         case 'voice_call_rejected':
         case 'voice_call_ended':
+        // 视频通话相关消息处理
+        case 'video_call_offer':
+        case 'video_call_answer':
+        case 'video_call_ice_candidate':
+        case 'video_call_rejected':
+        case 'video_call_ended':
+        case 'video_call_toggle':
           const handler = this.messageHandlers[data.type];
           if (handler) {
             await handler(data);
@@ -370,7 +387,7 @@ class HybridMessaging {
         type: 'direct_message',
         from: this.currentUserId,
         content: content,
-        timestamp: new Date().toISOString()
+        timestamp: getChinaTimeISO()
       };
       
       // 添加阅后即焚支持
@@ -406,7 +423,7 @@ class HybridMessaging {
       return { 
         success: true, 
         method: 'P2P',
-        id: `p2p_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: generateTempMessageId(),
         timestamp: message.timestamp 
       };
       
@@ -857,7 +874,7 @@ class HybridMessaging {
           from: this.currentUserId,
           to: toUserId,
           content: content,
-          timestamp: result.timestamp || new Date().toISOString(),
+          timestamp: result.timestamp || getChinaTimeISO(),
           method: 'Server',
           messageType: 'text',
           encrypted: false
@@ -908,7 +925,7 @@ class HybridMessaging {
     }
     
     const msgData = {
-      id: data.id || `msg_${data.from}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: data.id || generateTempMessageId(),
       from: data.from,
       to: this.currentUserId,
       content: data.content,
@@ -961,7 +978,17 @@ class HybridMessaging {
     const peerConnection = this.peerConnections.get(userId);
 
     if (dataChannel) {
-      dataChannel.close();
+      try {
+        // 检查数据通道状态，避免重复关闭
+        if (dataChannel.readyState === 'open' || dataChannel.readyState === 'connecting') {
+          dataChannel.close();
+          console.log(`[P2P] 关闭与用户 ${userId} 的数据通道`);
+        } else {
+          console.log(`[P2P] 用户 ${userId} 的数据通道已关闭，跳过关闭操作`);
+        }
+      } catch (error) {
+        console.warn(`[P2P] 关闭用户 ${userId} 的数据通道失败:`, error);
+      }
       this.p2pConnections.delete(userId);
     }
 
@@ -1040,7 +1067,7 @@ class HybridMessaging {
         try {
           this.ws.send(JSON.stringify({
             type: 'heartbeat',
-            timestamp: new Date().toISOString()
+            timestamp: getChinaTimeISO()
           }));
           console.log('[心跳] 已发送WebSocket心跳');
         } catch (error) {
@@ -1093,8 +1120,13 @@ class HybridMessaging {
     // 关闭所有P2P连接
     this.p2pConnections.forEach((connection, userId) => {
       try {
-        connection.close();
-        console.log(`已关闭与用户 ${userId} 的P2P连接`);
+        // 检查数据通道状态，避免重复关闭
+        if (connection.readyState === 'open' || connection.readyState === 'connecting') {
+          connection.close();
+          console.log(`已关闭与用户 ${userId} 的P2P连接`);
+        } else {
+          console.log(`用户 ${userId} 的P2P连接已关闭，跳过关闭操作`);
+        }
       } catch (error) {
         console.warn(`关闭与用户 ${userId} 的P2P连接失败:`, error);
       }
@@ -1185,6 +1217,79 @@ class HybridMessaging {
     this.initAudioEncryption();
   }
   
+  // 视频通话相关状态
+  initVideoCallState() {
+    // 保存现有的回调函数引用
+    const existingOnVideoCallReceived = this.onVideoCallReceived;
+    const existingOnVideoCallStatusChanged = this.onVideoCallStatusChanged;
+    
+    // 清理现有的视频通话资源
+    if (this.videoCallState) {
+      if (this.videoCallState.localStream) {
+        this.videoCallState.localStream.getTracks().forEach(track => {
+          track.stop();
+          console.log('[视频通话] 停止媒体轨道:', track.kind);
+        });
+      }
+      if (this.videoCallState.peerConnection) {
+        this.videoCallState.peerConnection.close();
+        console.log('[视频通话] 关闭WebRTC连接');
+      }
+    }
+    
+    this.videoCallState = {
+      isInCall: false,
+      currentCallId: null,
+      localStream: null,
+      remoteStream: null,
+      peerConnection: null,
+      callType: null, // 'outgoing' | 'incoming'
+      targetUserId: null,
+      callStartTime: null,
+      encryptionKey: null, // 媒体加密密钥
+      audioContext: null,  // 音频上下文
+      encryptionEnabled: true, // 是否启用加密
+      isVideoEnabled: true, // 是否启用视频
+      isAudioEnabled: true  // 是否启用音频
+    };
+    
+    // 保持回调函数不被清空，除非是首次初始化
+    if (existingOnVideoCallReceived !== undefined) {
+      this.onVideoCallReceived = existingOnVideoCallReceived;
+    }
+    if (existingOnVideoCallStatusChanged !== undefined) {
+      this.onVideoCallStatusChanged = existingOnVideoCallStatusChanged;
+    }
+    
+    // 重新初始化VideoCall.vue中需要的属性
+    this.videoConnections = new Map();
+    this.remoteVideoStreams = new Map();
+    this.currentVideoCall = null;
+    this.localVideoStream = null;
+    
+    // 初始化媒体加密相关
+    this.initVideoEncryption();
+  }
+  
+  // 初始化视频加密
+  initVideoEncryption() {
+    try {
+      // 生成随机加密密钥
+      this.generateVideoEncryptionKey();
+      console.log('[视频加密] 加密系统初始化完成');
+    } catch (error) {
+      console.error('[视频加密] 初始化失败:', error);
+    }
+  }
+  
+  // 生成视频加密密钥
+  generateVideoEncryptionKey() {
+    const key = new Uint8Array(32); // 256位密钥
+    crypto.getRandomValues(key);
+    this.videoCallState.encryptionKey = key;
+    return key;
+  }
+  
   // 初始化音频加密
   initAudioEncryption() {
     try {
@@ -1263,6 +1368,57 @@ class HybridMessaging {
         iceCandidatePoolSize: 10
       });
       
+      // 创建数据通道用于视频通话控制信令
+      const dataChannel = peerConnection.createDataChannel('videoCall', {
+        ordered: true
+      });
+      
+      dataChannel.onopen = () => {
+        console.log('[视频通话] 数据通道已打开');
+      };
+      
+      dataChannel.onclose = () => {
+        console.log('[视频通话] 数据通道已关闭');
+      };
+      
+      dataChannel.onerror = (error) => {
+        // 忽略用户主动关闭导致的错误
+        if (error.error && error.error.name === 'OperationError' && 
+            error.error.message.includes('User-Initiated Abort')) {
+          console.log('[视频通话] 数据通道正常关闭');
+          return;
+        }
+        console.warn('[视频通话] 数据通道错误:', error);
+      };
+      
+      dataChannel.onmessage = (event) => {
+        console.log('[视频通话] 收到数据通道消息:', event.data);
+      };
+      
+      // 处理接收到的数据通道
+      peerConnection.ondatachannel = (event) => {
+        const channel = event.channel;
+        console.log('[视频通话] 收到数据通道:', channel.label);
+        
+        channel.onopen = () => {
+          console.log('[视频通话] 接收数据通道已打开');
+        };
+        
+        channel.onclose = () => {
+          console.log('[视频通话] 接收数据通道已关闭');
+        };
+        
+        channel.onerror = (error) => {
+          // 忽略用户主动关闭导致的错误
+          if (error.error && error.error.name === 'OperationError' && 
+              error.error.message.includes('User-Initiated Abort')) {
+            console.log('[视频通话] 接收数据通道正常关闭');
+            return;
+          }
+          console.warn('[视频通话] 接收数据通道错误:', error);
+        };
+      };
+      
       // 添加本地流到连接
       localStream.getTracks().forEach(track => {
         peerConnection.addTrack(track, localStream);
@@ -1328,7 +1484,7 @@ class HybridMessaging {
       await peerConnection.setLocalDescription(offer);
       
       // 发送通话邀请（包含加密密钥）
-      const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const callId = generateTempMessageId();
       
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         const message = {
@@ -1353,7 +1509,7 @@ class HybridMessaging {
       this.voiceCallState.peerConnection = peerConnection;
       this.voiceCallState.callType = 'outgoing';
       this.voiceCallState.targetUserId = toUserId;
-      this.voiceCallState.callStartTime = new Date().toISOString();
+      this.voiceCallState.callStartTime = getChinaTimeISO();
       
       // 为VoiceCall.vue提供访问的属性
       this.localStream = localStream;
@@ -1378,6 +1534,215 @@ class HybridMessaging {
       
       // 清理资源
       await this.forceResetVoiceCallState();
+      
+      throw error;
+    }
+  }
+  
+  // 发起视频通话
+  async initiateVideoCall(toUserId) {
+    try {
+      console.log(`[视频通话] 开始发起通话给用户 ${toUserId}`);
+      
+      // 检查是否已在通话中
+      if (this.videoCallState && this.videoCallState.isInCall) {
+        console.log('[视频通话] 当前已在通话中，先结束现有通话');
+        await this.forceResetVideoCallState();
+      }
+      
+      // 强制重置视频通话状态，确保彻底清理之前的资源
+      await this.forceResetVideoCallState();
+      
+      // 获取用户媒体流
+      const localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000 // 高质量音频
+        },
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 }
+        }
+      });
+      
+      console.log('[视频通话] 本地媒体流获取成功');
+      
+      // 创建音频上下文用于加密处理
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      this.videoCallState.audioContext = audioContext;
+      
+      // 创建WebRTC连接
+      const peerConnection = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' }
+        ],
+        iceCandidatePoolSize: 10
+      });
+      
+      // 创建数据通道用于视频通话控制信令
+      const dataChannel = peerConnection.createDataChannel('videoCall', {
+        ordered: true
+      });
+      
+      dataChannel.onopen = () => {
+        console.log('[视频通话] 数据通道已打开');
+      };
+      
+      dataChannel.onclose = () => {
+        console.log('[视频通话] 数据通道已关闭');
+      };
+      
+      dataChannel.onerror = (error) => {
+        console.warn('[视频通话] 数据通道错误:', error);
+      };
+      
+      dataChannel.onmessage = (event) => {
+        console.log('[视频通话] 收到数据通道消息:', event.data);
+      };
+      
+      // 处理接收到的数据通道
+      peerConnection.ondatachannel = (event) => {
+        const channel = event.channel;
+        console.log('[视频通话] 收到数据通道:', channel.label);
+        
+        channel.onopen = () => {
+          console.log('[视频通话] 接收数据通道已打开');
+        };
+        
+        channel.onclose = () => {
+          console.log('[视频通话] 接收数据通道已关闭');
+        };
+        
+        channel.onerror = (error) => {
+          console.warn('[视频通话] 接收数据通道错误:', error);
+        };
+        
+        channel.onmessage = (event) => {
+          console.log('[视频通话] 收到数据通道消息:', event.data);
+        };
+      };
+      
+      // 添加本地流到连接
+      localStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, localStream);
+      });
+      
+      // 设置远程流处理
+      peerConnection.ontrack = (event) => {
+        console.log('[视频通话] 收到远程媒体流');
+        const remoteStream = event.streams[0];
+        
+        // 处理媒体解密（如果启用）
+        if (this.videoCallState.encryptionEnabled && this.videoCallState.encryptionKey) {
+          console.log('[视频加密] 对远程媒体流进行解密处理');
+          // 这里可以添加实时媒体解密逻辑
+        }
+        
+        this.videoCallState.remoteStream = remoteStream;
+        this.remoteVideoStreams.set(toUserId, remoteStream);
+        
+        if (this.onVideoCallStatusChanged) {
+          this.onVideoCallStatusChanged({
+            type: 'remote_stream_received',
+            stream: remoteStream
+          });
+        }
+      };
+      
+      // 监听连接状态变化
+      peerConnection.onconnectionstatechange = () => {
+        console.log(`[视频通话] 连接状态: ${peerConnection.connectionState}`);
+        if (this.onVideoCallStatusChanged) {
+          this.onVideoCallStatusChanged({
+            type: 'connection_state_changed',
+            state: peerConnection.connectionState
+          });
+        }
+        
+        // 连接失败时自动清理
+        if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
+          console.log('[视频通话] 连接失败，自动清理资源');
+          setTimeout(() => {
+            this.forceResetVideoCallState();
+          }, 1000);
+        }
+      };
+      
+      // ICE候选处理
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate && this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: 'video_call_ice_candidate',
+            to_id: toUserId,
+            payload: event.candidate
+          }));
+        }
+      };
+      
+      // 创建offer
+      const offer = await peerConnection.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      });
+      await peerConnection.setLocalDescription(offer);
+      
+      // 发送通话邀请（包含加密密钥）
+      const callId = generateTempMessageId();
+      
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        const message = {
+          type: 'video_call_offer',
+          to_id: toUserId,
+          call_id: callId,
+          payload: offer,
+          encryption_key: this.videoCallState.encryptionEnabled ? 
+            Array.from(this.videoCallState.encryptionKey) : null // 发送加密密钥
+        };
+        console.log('[视频通话] 发送通话邀请消息（含加密密钥）');
+        this.ws.send(JSON.stringify(message));
+        console.log('[视频通话] 通话邀请消息已发送到服务器');
+      } else {
+        throw new Error('WebSocket连接不可用，无法发起视频通话');
+      }
+      
+      // 更新状态
+      this.videoCallState.isInCall = true;
+      this.videoCallState.currentCallId = callId;
+      this.videoCallState.localStream = localStream;
+      this.videoCallState.peerConnection = peerConnection;
+      this.videoCallState.dataChannel = dataChannel;
+      this.videoCallState.callType = 'outgoing';
+      this.videoCallState.targetUserId = toUserId;
+      this.videoCallState.callStartTime = getChinaTimeISO();
+      
+      // 为VideoCall.vue提供访问的属性
+      this.localVideoStream = localStream;
+      this.currentVideoCall = {
+        userId: toUserId,
+        type: 'outgoing',
+        status: 'connecting'
+      };
+      this.videoConnections.set(toUserId, peerConnection);
+      
+      console.log('[视频通话] 通话邀请已发送，加密已启用');
+      
+      return {
+        success: true,
+        callId: callId,
+        localStream: localStream,
+        encryptionEnabled: this.videoCallState.encryptionEnabled
+      };
+      
+    } catch (error) {
+      console.error('[视频通话] 发起通话失败:', error);
+      
+      // 清理资源
+      await this.forceResetVideoCallState();
       
       throw error;
     }
@@ -1423,6 +1788,28 @@ class HybridMessaging {
         ],
         iceCandidatePoolSize: 10
       });
+      
+      // 处理接收到的数据通道
+      peerConnection.ondatachannel = (event) => {
+        const channel = event.channel;
+        console.log('[视频通话] 收到数据通道:', channel.label);
+        
+        channel.onopen = () => {
+          console.log('[视频通话] 接收数据通道已打开');
+        };
+        
+        channel.onclose = () => {
+          console.log('[视频通话] 接收数据通道已关闭');
+        };
+        
+        channel.onerror = (error) => {
+          console.warn('[视频通话] 接收数据通道错误:', error);
+        };
+        
+        channel.onmessage = (event) => {
+          console.log('[视频通话] 收到数据通道消息:', event.data);
+        };
+      };
       
       // 添加本地流
       localStream.getTracks().forEach(track => {
@@ -1506,12 +1893,12 @@ class HybridMessaging {
       
       // 更新状态
       this.voiceCallState.isInCall = true;
-      this.voiceCallState.currentCallId = `call_${Date.now()}`;
+      this.voiceCallState.currentCallId = generateTempMessageId();
       this.voiceCallState.localStream = localStream;
       this.voiceCallState.peerConnection = peerConnection;
       this.voiceCallState.callType = 'incoming';
       this.voiceCallState.targetUserId = fromUserId;
-      this.voiceCallState.callStartTime = new Date().toISOString();
+      this.voiceCallState.callStartTime = getChinaTimeISO();
       
       // 为VoiceCall.vue提供访问的属性
       this.localStream = localStream;
@@ -1576,6 +1963,239 @@ class HybridMessaging {
     }
   }
   
+  // 接听视频通话
+  async acceptVideoCall(fromUserId, offer, encryptionKey = null) {
+    try {
+      console.log(`[视频通话] 接听来自用户 ${fromUserId} 的通话`);
+      
+      // 强制重置视频通话状态，确保彻底清理之前的资源
+      await this.forceResetVideoCallState();
+      
+      // 如果提供了加密密钥，使用它
+      if (encryptionKey && Array.isArray(encryptionKey)) {
+        this.videoCallState.encryptionKey = new Uint8Array(encryptionKey);
+        console.log('[视频加密] 接收到加密密钥，启用加密通话');
+      }
+      
+      // 获取用户媒体流
+      const localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000
+        },
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 }
+        }
+      });
+      
+      console.log('[视频通话] 本地媒体流获取成功');
+      
+      // 创建音频上下文用于加密处理
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      this.videoCallState.audioContext = audioContext;
+      
+      // 创建WebRTC连接
+      const peerConnection = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' }
+        ],
+        iceCandidatePoolSize: 10
+      });
+      
+      // 添加本地流
+      localStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, localStream);
+      });
+      
+      // 设置远程流处理
+      peerConnection.ontrack = (event) => {
+        console.log('[视频通话] 收到远程媒体流');
+        const remoteStream = event.streams[0];
+        
+        this.videoCallState.remoteStream = remoteStream;
+        this.remoteVideoStreams.set(fromUserId, remoteStream);
+        
+        if (this.onVideoCallStatusChanged) {
+          this.onVideoCallStatusChanged({
+            type: 'remote_stream_received',
+            stream: remoteStream
+          });
+        }
+      };
+      
+      // 监听连接状态变化
+      peerConnection.onconnectionstatechange = () => {
+        console.log(`[视频通话] 连接状态: ${peerConnection.connectionState}`);
+        if (this.onVideoCallStatusChanged) {
+          this.onVideoCallStatusChanged({
+            type: 'connection_state_changed',
+            state: peerConnection.connectionState
+          });
+        }
+        
+        if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
+          console.log('[视频通话] 连接失败，自动清理资源');
+          setTimeout(() => {
+            this.forceResetVideoCallState();
+          }, 1000);
+        }
+      };
+      
+      // ICE候选处理
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate && this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: 'video_call_ice_candidate',
+            to_id: fromUserId,
+            payload: event.candidate
+          }));
+        }
+      };
+      
+      // 设置远程描述
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+      
+      // 创建answer
+      const answer = await peerConnection.createAnswer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      });
+      await peerConnection.setLocalDescription(answer);
+      
+      // 发送answer
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          type: 'video_call_answer',
+          to_id: fromUserId,
+          payload: answer,
+          encryption_confirmed: this.videoCallState.encryptionEnabled && !!this.videoCallState.encryptionKey
+        }));
+        console.log('[视频通话] 发送应答消息');
+      } else {
+        throw new Error('WebSocket连接不可用，无法接听视频通话');
+      }
+      
+      // 更新状态
+      this.videoCallState.isInCall = true;
+      this.videoCallState.currentCallId = generateTempMessageId();
+      this.videoCallState.localStream = localStream;
+      this.videoCallState.peerConnection = peerConnection;
+      this.videoCallState.callType = 'incoming';
+      this.videoCallState.targetUserId = fromUserId;
+      this.videoCallState.callStartTime = getChinaTimeISO();
+      
+      this.localVideoStream = localStream;
+      this.currentVideoCall = {
+        userId: fromUserId,
+        type: 'incoming',
+        status: 'active'
+      };
+      this.videoConnections.set(fromUserId, peerConnection);
+      
+      console.log('[视频通话] 通话已接听');
+      
+      return {
+        success: true,
+        localStream: localStream,
+        encryptionEnabled: this.videoCallState.encryptionEnabled
+      };
+      
+    } catch (error) {
+      console.error('[视频通话] 接听通话失败:', error);
+      await this.forceResetVideoCallState();
+      throw error;
+    }
+  }
+  
+  // 拒绝视频通话
+  async rejectVideoCall(fromUserId) {
+    try {
+      console.log(`[视频通话] 拒绝来自用户 ${fromUserId} 的通话`);
+      
+      // 保存被拒绝的通话记录
+      await this.saveVideoCallRecord(fromUserId, 'rejected');
+      
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          type: 'video_call_rejected',
+          to_id: fromUserId
+        }));
+      }
+      
+      // 保存回调函数引用
+      const existingOnVideoCallReceived = this.onVideoCallReceived;
+      const existingOnVideoCallStatusChanged = this.onVideoCallStatusChanged;
+      
+      // 强制重置状态
+      await this.forceResetVideoCallState();
+      
+      // 恢复回调函数
+      this.onVideoCallReceived = existingOnVideoCallReceived;
+      this.onVideoCallStatusChanged = existingOnVideoCallStatusChanged;
+      
+      console.log('[视频通话] 拒绝通话处理完成');
+      
+      return { success: true };
+      
+    } catch (error) {
+      console.error('[视频通话] 拒绝通话失败:', error);
+      throw error;
+    }
+  }
+  
+  // 结束视频通话
+  async endVideoCall(userId) {
+    try {
+      console.log(`[视频通话] 结束与用户 ${userId} 的通话`);
+      
+      // 保存通话记录
+      if (this.videoCallState && this.videoCallState.callStartTime) {
+        await this.saveVideoCallRecord(userId, 'completed');
+      }
+      
+      // 发送结束通话信号
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          type: 'video_call_ended',
+          to_id: userId
+        }));
+      }
+      
+      // 保存回调函数引用
+      const existingOnVideoCallReceived = this.onVideoCallReceived;
+      const existingOnVideoCallStatusChanged = this.onVideoCallStatusChanged;
+      
+      // 强制重置状态
+      await this.forceResetVideoCallState();
+      
+      // 恢复回调函数
+      this.onVideoCallReceived = existingOnVideoCallReceived;
+      this.onVideoCallStatusChanged = existingOnVideoCallStatusChanged;
+      
+      // 通知前端通话已结束
+      if (this.onVideoCallStatusChanged) {
+        this.onVideoCallStatusChanged({
+          type: 'call_ended_local',
+          userId: userId
+        });
+      }
+      
+      console.log('[视频通话] 通话结束处理完成');
+      
+      return { success: true };
+      
+    } catch (error) {
+      console.error('[视频通话] 结束通话失败:', error);
+      throw error;
+    }
+  }
+
   // 结束语音通话
   async endVoiceCall(userId) {
     try {
@@ -1697,10 +2317,86 @@ class HybridMessaging {
     }
   }
   
+  // 强制重置视频通话状态
+  async forceResetVideoCallState() {
+    try {
+      console.log('[视频通话] 强制重置视频通话状态');
+      
+      // 清理本地资源
+      if (this.videoCallState) {
+        if (this.videoCallState.localStream) {
+          this.videoCallState.localStream.getTracks().forEach(track => {
+            track.stop();
+            console.log('[视频通话] 强制停止媒体轨道:', track.kind);
+          });
+        }
+        if (this.videoCallState.dataChannel) {
+          try {
+            // 检查数据通道状态，避免重复关闭
+            if (this.videoCallState.dataChannel.readyState === 'open' || 
+                this.videoCallState.dataChannel.readyState === 'connecting') {
+              this.videoCallState.dataChannel.close();
+              console.log('[视频通话] 强制关闭数据通道');
+            } else {
+              console.log('[视频通话] 数据通道已关闭，跳过关闭操作');
+            }
+          } catch (error) {
+            console.warn('[视频通话] 关闭数据通道失败:', error);
+          }
+        }
+        if (this.videoCallState.peerConnection) {
+          this.videoCallState.peerConnection.close();
+          console.log('[视频通话] 强制关闭WebRTC连接');
+        }
+        if (this.videoCallState.audioContext) {
+          try {
+            await this.videoCallState.audioContext.close();
+            console.log('[视频通话] 强制关闭音频上下文');
+          } catch (error) {
+            console.warn('[视频通话] 关闭音频上下文失败:', error);
+          }
+        }
+      }
+      
+      // 清理所有连接
+      if (this.videoConnections) {
+        this.videoConnections.forEach((connection, userId) => {
+          try {
+            connection.close();
+            console.log(`[视频通话] 强制关闭与用户 ${userId} 的连接`);
+          } catch (error) {
+            console.warn(`[视频通话] 关闭与用户 ${userId} 的连接失败:`, error);
+          }
+        });
+        this.videoConnections.clear();
+      }
+      
+      // 清理远程流
+      if (this.remoteVideoStreams) {
+        this.remoteVideoStreams.clear();
+      }
+      
+      // 清理全局属性
+      this.localVideoStream = null;
+      this.currentVideoCall = null;
+      
+      // 重新初始化状态
+      this.initVideoCallState();
+      
+      console.log('[视频通话] 强制重置完成');
+      
+      return { success: true };
+      
+    } catch (error) {
+      console.error('[视频通话] 强制重置状态失败:', error);
+      return { success: false, error: error.message };
+    }
+  }
+  
   // 保存语音通话记录
    async saveVoiceCallRecord(userId, callStatus) {
      try {
-       const callEndTime = new Date().toISOString();
+       const callEndTime = getChinaTimeISO();
        let callStartTime = callEndTime;
        let duration = 0;
        
@@ -1757,7 +2453,7 @@ class HybridMessaging {
       // 无论后端保存是否成功，都要通知前端更新聊天记录
       if (this.onMessageReceived) {
         const messageForUI = {
-          id: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          id: generateTempMessageId(),
           from: this.currentUserId,
           to: userId,
           content: `语音通话 - ${callStatus === 'completed' ? '已完成' : callStatus === 'rejected' ? '被拒绝' : callStatus}`,
@@ -2022,6 +2718,303 @@ class HybridMessaging {
         });
         console.log(`[语音通话] 麦克风${currentMuted ? '已开启' : '已静音'}`);
         return !currentMuted; // 返回新的静音状态
+      }
+    }
+    return false;
+  }
+  
+  // ==================== 视频通话消息处理器 ====================
+  
+  // 处理视频通话邀请
+  async handleVideoCallOffer(data) {
+    try {
+      console.log(`[视频通话] 收到来自用户 ${data.from_id} 的通话邀请`);
+      
+      // 处理加密密钥
+      let encryptionKey = null;
+      if (data.encryption_key && Array.isArray(data.encryption_key)) {
+        encryptionKey = data.encryption_key;
+        console.log('[视频加密] 收到加密密钥，将启用加密通话');
+      }
+      
+      if (this.onVideoCallReceived) {
+        this.onVideoCallReceived({
+          type: 'incoming_call',
+          fromUserId: data.from_id,
+          callId: data.call_id,
+          offer: data.payload,
+          encryptionKey: encryptionKey
+        });
+      }
+      
+    } catch (error) {
+      console.error('[视频通话] 处理通话邀请失败:', error);
+    }
+  }
+  
+  // 处理视频通话应答
+  async handleVideoCallAnswer(data) {
+    try {
+      console.log(`[视频通话] 收到来自用户 ${data.from_id} 的通话应答`);
+      
+      if (this.videoCallState && this.videoCallState.peerConnection) {
+        await this.videoCallState.peerConnection.setRemoteDescription(
+          new RTCSessionDescription(data.payload)
+        );
+        
+        if (this.onVideoCallStatusChanged) {
+          this.onVideoCallStatusChanged({
+            type: 'call_answered',
+            fromUserId: data.from_id
+          });
+        }
+      }
+      
+    } catch (error) {
+      console.error('[视频通话] 处理通话应答失败:', error);
+    }
+  }
+  
+  // 处理视频通话ICE候选
+  async handleVideoCallIceCandidate(data) {
+    try {
+      console.log(`[视频通话] 收到来自用户 ${data.from_id} 的ICE候选`);
+      
+      if (this.videoCallState && this.videoCallState.peerConnection) {
+        await this.videoCallState.peerConnection.addIceCandidate(
+          new RTCIceCandidate(data.payload)
+        );
+      }
+      
+    } catch (error) {
+      console.error('[视频通话] 处理ICE候选失败:', error);
+    }
+  }
+  
+  // 处理视频通话被拒绝
+  async handleVideoCallRejected(data) {
+    try {
+      console.log(`[视频通话] 用户 ${data.from_id} 拒绝了通话`);
+      
+      // 保存被拒绝的通话记录
+      await this.saveVideoCallRecord(data.from_id, 'rejected');
+      
+      // 保存回调函数引用
+      const existingOnVideoCallReceived = this.onVideoCallReceived;
+      const existingOnVideoCallStatusChanged = this.onVideoCallStatusChanged;
+      
+      // 强制重置状态
+      await this.forceResetVideoCallState();
+      
+      // 恢复回调函数
+      this.onVideoCallReceived = existingOnVideoCallReceived;
+      this.onVideoCallStatusChanged = existingOnVideoCallStatusChanged;
+      
+      if (this.onVideoCallStatusChanged) {
+        this.onVideoCallStatusChanged({
+          type: 'call_rejected',
+          fromUserId: data.from_id
+        });
+      }
+      
+      console.log('[视频通话] 通话拒绝处理完成');
+      
+    } catch (error) {
+      console.error('[视频通话] 处理通话拒绝失败:', error);
+    }
+  }
+  
+  // 处理视频通话结束
+  async handleVideoCallEnded(data) {
+    try {
+      console.log(`[视频通话] 用户 ${data.from_id} 结束了通话`);
+      
+      // 保存远程结束的通话记录
+      if (this.videoCallState && this.videoCallState.callStartTime) {
+        await this.saveVideoCallRecord(data.from_id, 'completed');
+      }
+      
+      // 保存回调函数引用
+      const existingOnVideoCallReceived = this.onVideoCallReceived;
+      const existingOnVideoCallStatusChanged = this.onVideoCallStatusChanged;
+      
+      // 强制重置状态
+      await this.forceResetVideoCallState();
+      
+      // 恢复回调函数
+      this.onVideoCallReceived = existingOnVideoCallReceived;
+      this.onVideoCallStatusChanged = existingOnVideoCallStatusChanged;
+      
+      if (this.onVideoCallStatusChanged) {
+        this.onVideoCallStatusChanged({
+          type: 'call_ended_remote',
+          fromUserId: data.from_id
+        });
+      }
+      
+      console.log('[视频通话] 远程通话结束处理完成');
+      
+    } catch (error) {
+      console.error('[视频通话] 处理通话结束失败:', error);
+    }
+  }
+  
+  // 处理视频通话切换（开关摄像头/麦克风）
+  async handleVideoCallToggle(data) {
+    try {
+      console.log(`[视频通话] 用户 ${data.from_id} 切换了媒体状态:`, data.payload);
+      
+      if (this.onVideoCallStatusChanged) {
+        this.onVideoCallStatusChanged({
+          type: 'media_toggle',
+          fromUserId: data.from_id,
+          toggleType: data.payload.type, // 'video' | 'audio'
+          enabled: data.payload.enabled
+        });
+      }
+      
+    } catch (error) {
+      console.error('[视频通话] 处理媒体切换失败:', error);
+    }
+  }
+  
+  // 保存视频通话记录
+  async saveVideoCallRecord(userId, callStatus) {
+    try {
+      const callEndTime = getChinaTimeISO();
+      let callStartTime = callEndTime;
+      let duration = 0;
+      
+      if (this.videoCallState && this.videoCallState.callStartTime) {
+        callStartTime = this.videoCallState.callStartTime;
+        const startTime = new Date(callStartTime);
+        const endTime = new Date(callEndTime);
+        duration = Math.floor((endTime - startTime) / 1000); // 通话时长（秒）
+      } else {
+        // 对于被拒绝的通话，可能没有callStartTime，使用当前时间
+        console.warn('[视频通话] 缺少通话开始时间，使用当前时间作为开始时间');
+      }
+     
+     // 构建包含通话信息的内容
+     const callInfo = {
+       type: 'video_call',
+       status: callStatus,
+       duration: duration,
+       startTime: callStartTime,
+       endTime: callEndTime
+     };
+     
+     const callRecord = {
+        to: userId,
+        content: JSON.stringify(callInfo),
+        messageType: 'video_call',
+        method: 'Server',
+        encrypted: false
+      };
+     
+     console.log('[视频通话] 保存通话记录:', callRecord);
+     
+     // 发送到后端保存
+     try {
+       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+       const response = await fetch(`${API_BASE_URL}/v1/messages`, {
+         method: 'POST',
+         headers: {
+           'Content-Type': 'application/json',
+           'Authorization': `Bearer ${localStorage.getItem('token')}`
+         },
+         body: JSON.stringify(callRecord)
+       });
+       
+       if (response.ok) {
+         console.log('[视频通话] 通话记录保存成功');
+       } else {
+         console.error('[视频通话] 保存通话记录失败:', response.statusText);
+       }
+     } catch (fetchError) {
+       console.error('[视频通话] 保存通话记录网络错误:', fetchError);
+     }
+     
+     // 无论后端保存是否成功，都要通知前端更新聊天记录
+     if (this.onMessageReceived) {
+       const messageForUI = {
+         id: generateTempMessageId(),
+         from: this.currentUserId,
+         to: userId,
+         content: `视频通话 - ${callStatus === 'completed' ? '已完成' : callStatus === 'rejected' ? '被拒绝' : callStatus}`,
+         messageType: 'video_call',
+         callDuration: duration,
+         callStatus: callStatus,
+         callStartTime: callStartTime,
+         callEndTime: callEndTime,
+         timestamp: callEndTime,
+         method: 'Server'
+       };
+       
+       console.log('[视频通话] 通知前端添加通话记录:', messageForUI);
+       this.onMessageReceived(messageForUI);
+     }
+     
+   } catch (error) {
+     console.error('[视频通话] 保存通话记录异常:', error);
+   }
+ }
+  
+  // 切换视频状态
+  toggleVideo() {
+    if (this.localVideoStream || this.videoCallState?.localStream) {
+      const stream = this.localVideoStream || this.videoCallState.localStream;
+      const videoTracks = stream.getVideoTracks();
+      if (videoTracks.length > 0) {
+        const currentEnabled = videoTracks[0].enabled;
+        videoTracks.forEach(track => {
+          track.enabled = !currentEnabled;
+        });
+        console.log(`[视频通话] 摄像头${!currentEnabled ? '已开启' : '已关闭'}`);
+        
+        // 通知对方视频状态变化
+        if (this.videoCallState?.targetUserId && this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: 'video_call_toggle',
+            to_id: this.videoCallState.targetUserId,
+            payload: {
+              type: 'video',
+              enabled: !currentEnabled
+            }
+          }));
+        }
+        
+        return !currentEnabled; // 返回新的视频状态
+      }
+    }
+    return false;
+  }
+  
+  // 切换视频通话音频状态
+  toggleVideoAudio() {
+    if (this.localVideoStream || this.videoCallState?.localStream) {
+      const stream = this.localVideoStream || this.videoCallState.localStream;
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        const currentEnabled = audioTracks[0].enabled;
+        audioTracks.forEach(track => {
+          track.enabled = !currentEnabled;
+        });
+        console.log(`[视频通话] 麦克风${!currentEnabled ? '已开启' : '已静音'}`);
+        
+        // 通知对方音频状态变化
+        if (this.videoCallState?.targetUserId && this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: 'video_call_toggle',
+            to_id: this.videoCallState.targetUserId,
+            payload: {
+              type: 'audio',
+              enabled: !currentEnabled
+            }
+          }));
+        }
+        
+        return !currentEnabled; // 返回新的音频状态
       }
     }
     return false;

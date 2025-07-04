@@ -11,6 +11,6 @@ app.config.globalProperties.$hybridStore = hybridStore;
 app.use(router);
 
 // 直接挂载应用，数据库初始化将在用户登录后进行
-console.log('🚀 正在启动 Chat8 应用...');
+console.log('🚀 正在启动 Whisper 应用...');
 console.log('💡 本地数据库将在用户登录后初始化');
 app.mount('#app');

@@ -76,8 +76,9 @@
 <script setup>
 import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { store } from '../store';
-import MessageInput from './MessageInput.vue';
+import MessageInput from './messageinput.vue';
 import { getMessageHistory } from '../api';
+import { toChinaTime, getChinaTime } from '../utils/timeUtils.js';
 
 const props = defineProps({ contact: Object });
 const messages = ref([]);
@@ -233,16 +234,17 @@ function formatTime(timestamp) {
       return '无效时间';
     }
     
-    const now = new Date();
+    // 转换为中国时间
+    const chinaDate = toChinaTime(date);
+    const now = getChinaTime();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-    const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const messageDate = new Date(chinaDate.getFullYear(), chinaDate.getMonth(), chinaDate.getDate());
     
-    const timeStr = date.toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    });
+    // 手动格式化时间，确保显示中国时间
+    const hours = chinaDate.getHours().toString().padStart(2, '0');
+    const minutes = chinaDate.getMinutes().toString().padStart(2, '0');
+    const timeStr = `${hours}:${minutes}`;
     
     if (messageDate.getTime() === today.getTime()) {
       // 今天的消息只显示时间
@@ -252,10 +254,9 @@ function formatTime(timestamp) {
       return `昨天 ${timeStr}`;
     } else {
       // 其他日期显示"月-日 时:分"
-      const monthDay = date.toLocaleDateString('zh-CN', {
-        month: '2-digit',
-        day: '2-digit'
-      }).replace('/', '-');
+      const month = (chinaDate.getMonth() + 1).toString().padStart(2, '0');
+      const day = chinaDate.getDate().toString().padStart(2, '0');
+      const monthDay = `${month}-${day}`;
       return `${monthDay} ${timeStr}`;
     }
   } catch (error) {

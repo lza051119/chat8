@@ -1,13 +1,16 @@
 from sqlalchemy.orm import Session
 from app.db import models
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 from app.services.message_db_service import MessageDBService
 from app.services.encryption_service import encryption_service
 
+# 中国时区
+CHINA_TZ = timezone(timedelta(hours=8))
+
 def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted: bool = True, method: str = 'E2E', destroy_after: int = None, message_type: str = 'text', file_path: str = None, file_name: str = None, hidding_message: str = None, recipient_online: bool = False):
     # 服务器数据库只作为临时暂存，只有在接收方不在线时才保存
-    utc_now = datetime.utcnow()
+    china_now = datetime.now(CHINA_TZ)
     
     # 对于图片消息，确保内容不为空
     if message_type == 'image' and not content:
@@ -44,7 +47,7 @@ def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted:
             file_name=file_name,
             encrypted=encrypted,
             method=method,
-            timestamp=utc_now,
+            timestamp=china_now,
             destroy_after=destroy_after,
             hidding_message=hidding_message
         )
@@ -65,7 +68,7 @@ def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted:
     # 始终保存到发送方的本地数据库
     try:
         message_data = {
-            'id': str(msg.id) if msg else f"{from_id}_{to_id}_{int(utc_now.timestamp())}",
+            'id': str(msg.id) if msg else f"{from_id}_{to_id}_{int(china_now.timestamp())}",
             'from': from_id,
             'to': to_id,
             'content': content,  # 本地存储明文
@@ -73,7 +76,7 @@ def send_message(db: Session, from_id: int, to_id: int, content: str, encrypted:
             'message_type': message_type,
             'file_path': file_path if message_type == 'image' else None,
             'file_name': file_name if message_type == 'image' else None,
-            'timestamp': utc_now.isoformat(),
+            'timestamp': china_now.isoformat(),
             'method': method,
             'encrypted': encrypted
         }
@@ -142,7 +145,7 @@ def get_offline_messages(db: Session, user_id: int):
         return []
 
 def get_message_history(db: Session, user_id: int, peer_id: int, page: int = 1, limit: int = 50):
-    now = datetime.utcnow()
+    now = datetime.now(CHINA_TZ)
     query = db.query(models.Message).filter(
         ((models.Message.from_id == user_id) & (models.Message.to_id == peer_id)) |
         ((models.Message.from_id == peer_id) & (models.Message.to_id == user_id))

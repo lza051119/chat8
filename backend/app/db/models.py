@@ -5,7 +5,13 @@ try:
 except ImportError:
     from sqlalchemy.ext.declarative import declarative_base
     from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# 中国时区
+CHINA_TZ = timezone(timedelta(hours=8))
+
+def china_now():
+    return datetime.now(CHINA_TZ)
 
 Base = declarative_base()
 
@@ -16,8 +22,8 @@ class User(Base):
     email = Column(String(128), unique=True, index=True, nullable=False)
     password_hash = Column(String(128), nullable=False)
     avatar = Column(String(256), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    last_seen = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=china_now)
+    last_seen = Column(DateTime, default=china_now)
     public_key = Column(Text, nullable=True)
     status = Column(String(16), default='offline')
     friends = relationship('Friend', back_populates='user', cascade='all, delete-orphan', foreign_keys='Friend.user_id')
@@ -27,7 +33,7 @@ class Friend(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey('users.id'))
     friend_id = Column(Integer, ForeignKey('users.id'))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=china_now)
     user = relationship('User', foreign_keys=[user_id], back_populates='friends')
     friend_user = relationship('User', foreign_keys=[friend_id])
 
@@ -42,7 +48,7 @@ class Message(Base):
     file_name = Column(String(256), nullable=True)  # 原始文件名
     encrypted = Column(Boolean, default=True)
     method = Column(String(16), default='Server')
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=china_now)
     destroy_after = Column(Integer, nullable=True)  # 阅后即焚秒数
     hidding_message = Column(Text, nullable=True)  # 隐藏在图片中的消息
 
@@ -52,7 +58,7 @@ class Key(Base):
     user_id = Column(Integer, ForeignKey('users.id'), unique=True)
     public_key = Column(Text, nullable=False)
     fingerprint = Column(String(128), nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=china_now)
 
 class SignalingMessage(Base):
     __tablename__ = 'signaling_messages'
@@ -61,7 +67,7 @@ class SignalingMessage(Base):
     to_user_id = Column(Integer, ForeignKey('users.id'))
     msg_type = Column(String(32), nullable=False)
     data = Column(Text, nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=china_now)
     is_handled = Column(Boolean, default=False)
 
 class FriendRequest(Base):
@@ -71,8 +77,8 @@ class FriendRequest(Base):
     to_user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     status = Column(String(16), default='pending')  # pending, accepted, rejected
     message = Column(Text, nullable=True)  # 申请消息
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=china_now)
+    updated_at = Column(DateTime, default=china_now)
     
     # 关系
     from_user = relationship('User', foreign_keys=[from_user_id])
@@ -84,7 +90,7 @@ class SecurityEvent(Base):
     user_id = Column(Integer, ForeignKey('users.id'))
     event_type = Column(String(64), nullable=False)
     detail = Column(Text, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=china_now)
 
 class UserKeys(Base):
     __tablename__ = 'user_keys'
@@ -93,8 +99,8 @@ class UserKeys(Base):
     public_key = Column(Text, nullable=False)  # 用户公钥
     private_key_encrypted = Column(Text, nullable=False)  # 用户私钥（加密存储）
     key_version = Column(Integer, default=1)  # 密钥版本
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=china_now)
+    updated_at = Column(DateTime, default=china_now)
     
     # 关系
     user = relationship('User', foreign_keys=[user_id])
@@ -109,8 +115,8 @@ class UserProfile(Base):
     hobbies = Column(Text, nullable=True)  # 爱好
     signature = Column(Text, nullable=True)  # 个性签名
     display_name = Column(String(64), nullable=True)  # 显示名称（用户名修改）
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=china_now)
+    updated_at = Column(DateTime, default=china_now)
     
     # 关系
     user = relationship('User', foreign_keys=[user_id])
@@ -123,8 +129,8 @@ class SessionKey(Base):
     session_key_encrypted = Column(Text, nullable=False)  # 对称会话密钥（用用户1公钥加密）
     session_key_encrypted_for_user2 = Column(Text, nullable=True)  # 对称会话密钥（用用户2公钥加密）
     key_version = Column(Integer, default=1)  # 密钥版本
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=china_now)
+    updated_at = Column(DateTime, default=china_now)
     
     # 关系
     user1 = relationship('User', foreign_keys=[user1_id])

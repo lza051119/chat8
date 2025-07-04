@@ -1,5 +1,6 @@
 import { reactive, computed } from 'vue';
 import CryptoJS from 'crypto-js';
+import { getChinaTimeISO, generateTempMessageId } from '../utils/timeUtils.js';
 
 // 创建reactive状态
 const state = reactive({
@@ -181,19 +182,24 @@ export const hybridStore = {
       return;
     }
     
-    // 标准化联系人数据，确保必要字段存在
-    const normalizedContacts = contacts.map(contact => ({
-      ...contact,
-      username: contact.username || '',
-      email: contact.email || '',
-      online: contact.online || false,
-      connectionStatus: contact.connectionStatus || {
-        canUseP2P: false,
-        preferredMethod: 'Server',
-        p2pStatus: 'disconnected'
-      },
-      lastMessage: contact.lastMessage || null
-    }));
+    // 标准化联系人数据，确保必要字段存在，并保留现有联系人的头像缓存
+    const normalizedContacts = contacts.map(contact => {
+      const existingContact = state.contacts.find(c => c.id === contact.id);
+      return {
+        ...contact,
+        username: contact.username || '',
+        email: contact.email || '',
+        // 优先使用新数据的头像，如果没有则保留现有缓存
+        avatar: contact.avatar !== undefined ? contact.avatar : (existingContact?.avatar || null),
+        online: contact.online || false,
+        connectionStatus: contact.connectionStatus || {
+          canUseP2P: false,
+          preferredMethod: 'Server',
+          p2pStatus: 'disconnected'
+        },
+        lastMessage: contact.lastMessage || null
+      };
+    });
     
     state.contacts = normalizedContacts;
     
@@ -226,6 +232,7 @@ export const hybridStore = {
         ...contact,
         username: contact.username || '',
         email: contact.email || '',
+        avatar: contact.avatar || null,
         online: contact.online || false,
         connectionStatus: contact.connectionStatus || {
           canUseP2P: false,
@@ -404,6 +411,24 @@ export const hybridStore = {
     return state.contacts;
   },
 
+  // 更新联系人头像
+  updateContactAvatar(userId, avatarUrl) {
+    const contact = state.contacts.find(c => c.id == userId || c.id === parseInt(userId));
+    if (contact) {
+      contact.avatar = avatarUrl;
+      console.log(`已更新联系人 ${userId} 的头像:`, avatarUrl);
+    }
+  },
+
+  // 更新当前聊天联系人的头像
+  updateCurrentContactAvatar(avatarUrl) {
+    if (state.currentContact) {
+      state.currentContact.avatar = avatarUrl;
+      // 同时更新联系人列表中的头像
+      this.updateContactAvatar(state.currentContact.id, avatarUrl);
+    }
+  },
+
   // 更新P2P连接状态
   updateP2PConnection(userId, status) {
     state.p2pConnections[userId] = status;
@@ -558,7 +583,7 @@ export const hybridStore = {
   // 处理接收到的消息
   async handleReceivedMessage(message) {
     // 生成唯一的消息ID，避免重复
-    const messageId = message.id || `msg_${message.from}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const messageId = message.id || generateTempMessageId();
     
     // 处理阅后即焚时间
     let destroyAfter = null;
@@ -572,7 +597,7 @@ export const hybridStore = {
       from: message.from,
       to: state.user?.id,
       content: message.content,
-      timestamp: message.timestamp || new Date().toISOString(),
+      timestamp: message.timestamp || getChinaTimeISO(),
       method: message.method || 'Server',
       encrypted: false,
       // 添加图片消息支持
@@ -604,7 +629,7 @@ export const hybridStore = {
         from: message.from,
         to: state.user?.id,
         content: message.content,
-        timestamp: message.timestamp || new Date().toISOString(),
+        timestamp: message.timestamp || getChinaTimeISO(),
         method: message.method || 'Server',
         messageType: message.messageType || message.message_type || 'text',
         filePath: message.filePath || message.file_path || null,

@@ -181,31 +181,38 @@ export default {
       try {
         let response
         if (isViewingFriend.value) {
-          // 加载好友的个人信息
+          // 加载好友的个人信息（现在包含头像信息）
           response = await hybridApi.getUserProfile(props.userId)
+          if (response.data) {
+            Object.assign(profileData, response.data)
+            Object.assign(originalData, response.data)
+            // 设置好友头像
+            currentUser.avatar = response.data.avatar
+            hasExistingProfile.value = true
+          }
         } else {
           // 加载自己的个人信息
           response = await hybridApi.get()
-        }
-        
-        if (response.data) {
-          Object.assign(profileData, response.data)
-          Object.assign(originalData, response.data)
-          hasExistingProfile.value = true
-        }
-        
-        // 加载用户基本信息（包括头像）
-        if (!isViewingFriend.value) {
+          if (response.data) {
+            Object.assign(profileData, response.data)
+            Object.assign(originalData, response.data)
+            hasExistingProfile.value = true
+          }
+          
+          // 加载用户基本信息（包括头像）- 确保获取最新头像
           const userInfo = await hybridApi.getUserInfo()
-          if (userInfo.data?.data?.user) {
+          if (userInfo.data?.avatar !== undefined) {
+            // 直接从用户信息中获取头像
+            currentUser.avatar = userInfo.data.avatar
+          } else if (userInfo.data?.data?.user?.avatar !== undefined) {
+            // 兼容旧格式
             currentUser.avatar = userInfo.data.data.user.avatar
           }
         }
       } catch (error) {
         if (error.response?.status !== 404) {
           console.error('加载个人信息失败:', error)
-          const errorMsg = isViewingFriend.value ? '加载好友信息失败，请稍后重试' : '加载个人信息失败，请稍后重试'
-          alert(errorMsg)
+          // 移除弹窗提示，静默处理错误
         }
       } finally {
         loading.value = false
@@ -271,8 +278,16 @@ export default {
       try {
         const response = await hybridApi.uploadAvatar(file)
         if (response.data?.data?.avatarUrl) {
-          currentUser.avatar = response.data.data.avatarUrl
-          emit('avatar-updated', currentUser.avatar)
+          const newAvatarUrl = response.data.data.avatarUrl
+          currentUser.avatar = newAvatarUrl
+          
+          // 更新hybrid-store中的用户头像缓存
+          const { hybridStore } = await import('@/store/hybrid-store')
+          if (hybridStore.user && hybridStore.user.id) {
+            hybridStore.updateContactAvatar(hybridStore.user.id, newAvatarUrl)
+          }
+          
+          emit('avatar-updated', newAvatarUrl)
           alert('头像上传成功')
         }
       } catch (error) {
@@ -289,12 +304,26 @@ export default {
     
     // 删除头像
     const deleteAvatar = async () => {
-      if (!confirm('确定要删除头像吗？')) return
+      if (!currentUser.avatar) {
+        alert('没有头像可删除')
+        return
+      }
+      
+      if (!confirm('确定要删除头像吗？')) {
+        return
+      }
       
       uploading.value = true
       try {
         await hybridApi.deleteAvatar()
         currentUser.avatar = null
+        
+        // 更新hybrid-store中的用户头像缓存
+        const { hybridStore } = await import('@/store/hybrid-store')
+        if (hybridStore.user && hybridStore.user.id) {
+          hybridStore.updateContactAvatar(hybridStore.user.id, null)
+        }
+        
         emit('avatar-updated', null)
         alert('头像删除成功')
       } catch (error) {

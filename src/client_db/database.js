@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getChinaTimeISO } from '../utils/timeUtils.js';
 
 // API基础URL
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
@@ -75,7 +76,7 @@ export const initDatabase = async () => {
         }
       }
       
-      console.log('🎉 Chat8 本地文件存储已成功初始化!');
+      console.log('🎉 Whisper 本地文件存储已成功初始化!');
       console.log('📍 数据库状态:', data.database);
       console.log('📁 JSON备份文件:', data.has_json_backup ? '存在' : '不存在');
       if (data.json_file_path) {
@@ -249,8 +250,8 @@ export const storeUserKeys = async (keyData) => {
       signedPrekey: keyData.signed_prekey,
       oneTimePrekeys: keyData.one_time_prekeys || [],
       keyVersion: keyData.key_version || 1,
-      createdAt: keyData.created_at || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdAt: keyData.created_at || getChinaTimeISO(),
+      updatedAt: getChinaTimeISO()
     };
     
     // 获取当前用户ID
@@ -363,14 +364,14 @@ export const validateUserKeys = async () => {
 
 // 在控制台提供全局访问函数
 if (typeof window !== 'undefined') {
-  window.checkChat8LocalStorage = checkDatabaseStatus;
-  window.clearChat8Messages = clearAllMessages;
+  window.checkWhisperLocalStorage = checkDatabaseStatus;
+window.clearWhisperMessages = clearAllMessages;
   window.getUserKeys = getUserKeys;
   window.clearUserKeys = clearUserKeys;
   window.validateUserKeys = validateUserKeys;
   console.log('💡 提示: 在浏览器控制台输入以下命令:');
-  console.log('  - checkChat8LocalStorage() 查看本地存储状态');
-  console.log('  - clearChat8Messages() 清空所有消息');
+  console.log('  - checkWhisperLocalStorage() 查看本地存储状态');
+console.log('  - clearWhisperMessages() 清空所有消息');
   console.log('  - getUserKeys() 获取当前用户密钥');
   console.log('  - clearUserKeys() 清除当前用户密钥');
   console.log('  - validateUserKeys() 验证密钥完整性');
@@ -378,7 +379,7 @@ if (typeof window !== 'undefined') {
 
 // 导出一个虚拟的数据库对象以保持兼容性
 export default {
-  name: 'Chat8LocalFileStorage',
+  name: 'WhisperLocalFileStorage',
   type: 'Local File System',
   isOpen: () => true
 };

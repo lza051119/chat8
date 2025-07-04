@@ -95,6 +95,8 @@ origins = [
     "http://127.0.0.1:8081",
     "http://localhost:8082",  # 新的前端端口
     "http://127.0.0.1:8082",
+    "http://localhost:8083",  # 备用前端端口
+    "http://127.0.0.1:8083",
 ]
 
 app.add_middleware(

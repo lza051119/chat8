@@ -33,10 +33,10 @@
           📋
         </button>
         <button 
-          @click="startVoiceCall" 
+          @click="showCallTypeSelector" 
           :disabled="!contact.online"
           class="voice-call-btn"
-          title="语音通话"
+          title="发起通话"
         >
           📞
         </button>
@@ -93,7 +93,6 @@
               </div>
               <div class="file-info">
                 <div class="file-name">{{ message.fileName || message.file_name || (message.file && message.file.name) || '未知文件' }}</div>
-                <div class="file-meta">{{ formatFileSize(message.fileSize || message.file_size || (message.file && message.file.size)) }}</div>
                 <!-- 调试信息 -->
                 <div v-if="debugMode" class="debug-info">
                   <small style="color: #666; font-size: 10px;">
@@ -116,7 +115,6 @@
             </div>
             <div class="file-info">
               <div class="file-name">{{ (message.file && message.file.name) || message.fileName || message.file_name || '未知文件' }}</div>
-              <div class="file-meta">{{ formatFileSize((message.file && message.file.size) || message.fileSize || message.file_size) }}</div>
               <!-- 调试信息 -->
               <div v-if="debugMode" class="debug-info">
                 <small style="color: #666; font-size: 10px;">
@@ -438,6 +436,34 @@
         </div>
       </div>
     </div>
+    
+    <!-- 通话类型选择器 -->
+    <CallTypeSelector 
+      :show="showCallSelector" 
+      :contact="contact"
+      @close="closeCallTypeSelector"
+      @call-selected="handleCallTypeSelected"
+    />
+    
+    <!-- Toast提示组件 -->
+    <div v-if="showToast" class="toast-container" @click="hideToast">
+      <div class="toast" :class="toastType">
+        <div class="toast-icon">
+          <svg v-if="toastType === 'success'" width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M16.667 5L7.5 14.167L3.333 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <svg v-else width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M10 6v4M10 14h.01M19 10a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span class="toast-message">{{ toastMessage }}</span>
+        <button class="toast-close" @click.stop="hideToast">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -448,6 +474,8 @@ import { hybridStore } from '../store/hybrid-store';
 import { getMessagesWithFriend, addMessage } from '@/client_db/database';
 import { hybridApi } from '@/api/hybrid-api';
 import HybridMessageInput from './hybridmessageinput.vue';
+import CallTypeSelector from './CallTypeSelector.vue';
+import { getChinaTimeISO, formatTimestamp as formatChinaTimestamp, generateTempMessageId } from '../utils/timeUtils';
 
 const router = useRouter();
 
@@ -484,6 +512,15 @@ const currentImageMessage = ref(null);
 
 // 阅后即焚倒计时更新变量
 const burnAfterUpdateTrigger = ref(0);
+
+// 通话类型选择器相关状态
+const showCallSelector = ref(false);
+
+// Toast提示相关状态
+const showToast = ref(false);
+const toastMessage = ref('');
+const toastType = ref('success'); // 'success' | 'error'
+let toastTimer = null;
 
 const contact = computed(() => hybridStore.currentContact);
 const currentUser = computed(() => hybridStore.user);
@@ -545,6 +582,15 @@ watch(contact, async (newContact) => {
     scrollToBottom();
   }
 });
+
+// 监听联系人头像变化，确保头像实时更新
+watch(() => contact.value?.avatar, (newAvatar, oldAvatar) => {
+  if (newAvatar !== oldAvatar) {
+    console.log(`联系人 ${contact.value?.username} 的头像已更新:`, newAvatar);
+    // 触发响应式更新
+    nextTick();
+  }
+}, { deep: true });
 
 // 监听消息变化，滚动到底部
 watch(messages, async () => {
@@ -627,73 +673,7 @@ function getConnectionMethod() {
 }
 
 function formatTime(timestamp) {
-  // 确保时间戳格式正确
-  let dateStr = timestamp;
-  
-  // 处理不同格式的时间戳
-  if (typeof timestamp === 'string') {
-    if (timestamp.endsWith('Z')) {
-      // UTC时间格式，保持原样
-      dateStr = timestamp;
-    } else if (timestamp.includes('T') && !timestamp.endsWith('Z')) {
-      // ISO格式但没有Z后缀，添加Z表示UTC
-      dateStr = timestamp + 'Z';
-    } else if (!timestamp.includes('T')) {
-      // 简单的时间戳，添加UTC标识
-      dateStr = timestamp + 'Z';
-    }
-  }
-  
-  const date = new Date(dateStr);
-  
-  // 检查日期是否有效
-  if (isNaN(date.getTime())) {
-    console.warn('无效的时间戳:', timestamp);
-    return '无效时间';
-  }
-  
-  // 转换为中国时间（UTC+8）
-  const chinaTime = new Date(date.getTime() + (8 * 60 * 60 * 1000));
-  const now = new Date();
-  const chinaToday = new Date(now.getTime() + (8 * 60 * 60 * 1000));
-  
-  // 获取今天和昨天的日期（中国时区）
-  const yesterday = new Date(chinaToday);
-  yesterday.setDate(yesterday.getDate() - 1);
-  
-  const messageDate = new Date(chinaTime.getFullYear(), chinaTime.getMonth(), chinaTime.getDate());
-  const todayDate = new Date(chinaToday.getFullYear(), chinaToday.getMonth(), chinaToday.getDate());
-  const yesterdayDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
-  
-  // 获取时间部分（小时:分钟）- 使用中国时间
-  const timeStr = chinaTime.toLocaleTimeString('zh-CN', { 
-    hour: '2-digit', 
-    minute: '2-digit',
-    timeZone: 'Asia/Shanghai'
-  });
-  
-  if (messageDate.getTime() === todayDate.getTime()) {
-    // 今天的消息只显示时间 XX:XX
-    return timeStr;
-  } else if (messageDate.getTime() === yesterdayDate.getTime()) {
-    // 昨天的消息显示"昨天 时间"
-    return '昨天 ' + timeStr;
-  } else if (chinaTime.getFullYear() === chinaToday.getFullYear()) {
-    // 今年的其他日期显示 MM-DD XX:XX
-    return chinaTime.toLocaleDateString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
-      timeZone: 'Asia/Shanghai'
-    }) + ' ' + timeStr;
-  } else {
-    // 往年的消息显示 YY-MM-DD XX:XX
-    return chinaTime.getFullYear().toString().slice(-2) + '-' + 
-           chinaTime.toLocaleDateString('zh-CN', {
-             month: '2-digit',
-             day: '2-digit',
-             timeZone: 'Asia/Shanghai'
-           }) + ' ' + timeStr;
-  }
+  return formatChinaTimestamp(timestamp);
 }
 
 function formatCallDuration(seconds) {
@@ -787,11 +767,11 @@ async function handleMessageSent(messageData, callback) {
 
   // 创建临时消息对象用于立即显示
   tempMessage = {
-    id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    id: generateTempMessageId(),
     from: currentUser.value.id,
     to: contact.value.id,
     content: messageData.content,
-    timestamp: new Date().toISOString(),
+    timestamp: getChinaTimeISO(),
     method: 'Server',
     encrypted: false,
     sending: true
@@ -836,11 +816,11 @@ async function handleMessageSent(messageData, callback) {
     
     // 先创建本地消息对象（立即显示）
     tempMessage = {
-      id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: generateTempMessageId(),
       from: currentUser.value.id,
       to: contact.value.id,
       content: messageData.content,
-      timestamp: new Date().toISOString(),
+      timestamp: getChinaTimeISO(),
       method: 'Server',
       encrypted: false,
       sending: true,
@@ -917,14 +897,14 @@ async function handleMessageSent(messageData, callback) {
 
 async function handleFileSent(messageData) {
   const tempMessage = {
-    id: `temp_${Date.now()}`,
+    id: generateTempMessageId(),
     from: currentUser.value.id,
     to: contact.value.id,
     content: `[文件: ${messageData.fileName}]`,
     messageType: 'file',
     fileName: messageData.fileName,
     fileSize: messageData.fileSize,
-    timestamp: new Date().toISOString(),
+    timestamp: getChinaTimeISO(),
     method: 'Server',
     sending: true
   };
@@ -984,7 +964,7 @@ async function handleFileSent(messageData) {
 async function handleImageSent(messageData) {
   // 在函数开始就定义tempMessage，确保在所有块中都能访问
   const tempMessage = {
-    id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    id: generateTempMessageId(),
     from: currentUser.value.id,
     to: contact.value.id,
     content: messageData.hiddenMessage ? 
@@ -994,7 +974,7 @@ async function handleImageSent(messageData) {
     fileName: messageData.fileName,
     hiddenMessage: messageData.hiddenMessage || false,
     originalText: messageData.originalText || null,
-    timestamp: new Date().toISOString(),
+    timestamp: getChinaTimeISO(),
     method: 'Server',
     encrypted: false,
     sending: true
@@ -1088,7 +1068,7 @@ async function handleSteganographySent(messageData) {
   
   // 创建临时消息对象用于立即显示
   tempMessage = {
-    id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    id: generateTempMessageId(),
     from: currentUser.value.id,
     to: contact.value.id,
     content: messageData.content,
@@ -1098,7 +1078,7 @@ async function handleSteganographySent(messageData) {
     fileName: messageData.fileName,
     hiddenMessage: true,
     originalText: messageData.originalText || null,
-    timestamp: new Date().toISOString(),
+    timestamp: getChinaTimeISO(),
     method: 'Server',
     encrypted: false,
     sending: true
@@ -1189,6 +1169,32 @@ async function handleSteganographySent(messageData) {
   }
 }
 
+// 显示通话类型选择器
+function showCallTypeSelector() {
+  if (!contact.value || !contact.value.online) {
+    alert('联系人不在线，无法发起通话');
+    return;
+  }
+  showCallSelector.value = true;
+}
+
+// 关闭通话类型选择器
+function closeCallTypeSelector() {
+  showCallSelector.value = false;
+}
+
+// 处理通话类型选择
+async function handleCallTypeSelected(data) {
+  const { type, contact: selectedContact } = data;
+  
+  if (type === 'voice') {
+    await startVoiceCall();
+  } else if (type === 'video') {
+    await startVideoCall();
+  }
+}
+
+// 发起语音通话
 async function startVoiceCall() {
   if (!contact.value || !contact.value.online) {
     alert('联系人不在线，无法发起语音通话');
@@ -1228,6 +1234,52 @@ async function startVoiceCall() {
       errorMessage = '服务未就绪，请稍后重试';
     } else {
       errorMessage = `发起语音通话失败: ${error.message}`;
+    }
+    
+    alert(errorMessage);
+  }
+}
+
+// 发起视频通话
+async function startVideoCall() {
+  if (!contact.value || !contact.value.online) {
+    alert('联系人不在线，无法发起视频通话');
+    return;
+  }
+  
+  try {
+    const hybridMessaging = hybridStore.getHybridMessaging();
+    if (!hybridMessaging) {
+      alert('消息服务未初始化，无法发起视频通话');
+      return;
+    }
+    
+    console.log('[HybridChatWindow] 开始发起视频通话，联系人ID:', contact.value.id);
+    
+    // 发起视频通话
+    const result = await hybridMessaging.initiateVideoCall(contact.value.id);
+    
+    console.log('[HybridChatWindow] 视频通话发起成功:', result);
+    
+    // 如果成功，跳转到视频通话页面
+    if (result && result.success !== false) {
+      router.push(`/video-call/${contact.value.id}`);
+    } else {
+      alert(`发起视频通话失败: ${result?.error || '未知错误'}`);
+    }
+  } catch (error) {
+    console.error('[HybridChatWindow] 发起视频通话失败:', error);
+    
+    // 根据错误类型提供更具体的错误信息
+    let errorMessage = '发起视频通话失败';
+    if (error.message.includes('WebSocket') || error.message.includes('网络')) {
+      errorMessage = '网络连接异常，请检查网络后重试';
+    } else if (error.message.includes('摄像头') || error.message.includes('麦克风')) {
+      errorMessage = '摄像头或麦克风访问失败，请检查设备权限';
+    } else if (error.message.includes('消息服务')) {
+      errorMessage = '服务未就绪，请稍后重试';
+    } else {
+      errorMessage = `发起视频通话失败: ${error.message}`;
     }
     
     alert(errorMessage);
@@ -1462,34 +1514,228 @@ function handleViewLargeImage() {
   showImageContextMenu.value = false;
 }
 
-function handleCopyImage() {
-  if (currentLongPressMessage.value) {
-    const imageUrl = getImageUrl(currentLongPressMessage.value.filePath);
-    // 复制图片到剪贴板
-    fetch(imageUrl)
-      .then(response => response.blob())
-      .then(blob => {
-        const item = new ClipboardItem({ 'image/png': blob });
-        navigator.clipboard.write([item]);
-        console.log('图片已复制到剪贴板');
-      })
-      .catch(error => {
-        console.error('复制图片失败:', error);
-      });
+async function handleCopyImage() {
+  if (!currentLongPressMessage.value) {
+    showImageContextMenu.value = false;
+    return;
   }
+
+  try {
+    const imageUrl = getImageUrl(currentLongPressMessage.value.filePath);
+    console.log('开始复制图片到剪贴板:', imageUrl);
+    
+    // 检查浏览器是否支持剪贴板API
+    if (!navigator.clipboard || !navigator.clipboard.write) {
+      throw new Error('浏览器不支持剪贴板API');
+    }
+    
+    // 获取图片数据
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`获取图片失败: ${response.status}`);
+    }
+    
+    const blob = await response.blob();
+    console.log('图片blob获取成功，大小:', blob.size, '类型:', blob.type);
+    
+    // 定义剪贴板支持的图片格式
+    const supportedTypes = ['image/png'];
+    let mimeType = blob.type;
+    let finalBlob = blob;
+    
+    // 如果不是PNG格式，直接转换为PNG
+    if (mimeType !== 'image/png') {
+      console.log('检测到非PNG格式:', mimeType, '，转换为PNG格式');
+      
+      try {
+        // 创建一个临时的Image对象
+        const img = new Image();
+        
+        // 创建一个Promise来处理图片加载
+        const imageLoadPromise = new Promise((resolve, reject) => {
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error('图片加载失败'));
+          
+          // 使用blob URL避免跨域问题
+          const blobUrl = URL.createObjectURL(blob);
+          img.src = blobUrl;
+        });
+        
+        const loadedImg = await imageLoadPromise;
+        
+        // 创建canvas并转换为PNG
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = loadedImg.naturalWidth;
+        canvas.height = loadedImg.naturalHeight;
+        
+        // 绘制图片
+        ctx.drawImage(loadedImg, 0, 0);
+        
+        // 转换为PNG blob
+        finalBlob = await new Promise((resolve, reject) => {
+          canvas.toBlob((pngBlob) => {
+            if (pngBlob) {
+              resolve(pngBlob);
+            } else {
+              reject(new Error('PNG转换失败'));
+            }
+          }, 'image/png', 1.0);
+        });
+        
+        mimeType = 'image/png';
+        console.log('图片格式转换成功，新类型:', mimeType, '新大小:', finalBlob.size);
+        
+        // 清理blob URL
+        URL.revokeObjectURL(img.src);
+        
+      } catch (conversionError) {
+        console.warn('图片格式转换失败:', conversionError);
+        
+        // 如果转换失败，尝试直接使用原始blob，但强制设置为PNG类型
+        if (blob.type.startsWith('image/')) {
+          // 创建一个新的blob，强制设置为PNG类型
+          finalBlob = new Blob([blob], { type: 'image/png' });
+          mimeType = 'image/png';
+          console.log('使用原始数据但设置为PNG类型');
+        } else {
+          throw new Error('无法处理的图片格式');
+        }
+      }
+    }
+    
+    // 创建ClipboardItem，只使用PNG格式
+    const clipboardItem = new ClipboardItem({
+      'image/png': finalBlob
+    });
+    
+    // 写入剪贴板
+    await navigator.clipboard.write([clipboardItem]);
+    
+    console.log('图片已成功复制到剪贴板，格式: PNG');
+    
+    // 显示成功提示
+    showSuccessToast('图片已复制到剪贴板，可使用 Cmd+V 粘贴');
+    
+  } catch (error) {
+    console.error('复制图片失败:', error);
+    
+    // 显示错误提示
+    let errorMessage = '复制图片失败';
+    if (error.message.includes('不支持剪贴板API')) {
+      errorMessage = '您的浏览器不支持图片复制功能，请使用较新版本的Chrome、Firefox或Safari';
+    } else if (error.message.includes('获取图片失败')) {
+      errorMessage = '无法获取图片，请检查网络连接';
+    } else if (error.name === 'NotAllowedError') {
+      errorMessage = '复制图片被浏览器阻止，请检查浏览器权限设置';
+    } else if (error.name === 'SecurityError') {
+      errorMessage = '图片复制受到安全限制，请尝试保存图片后手动复制';
+    } else if (error.message.includes('无法处理的图片格式')) {
+      errorMessage = '图片格式不支持复制，请尝试保存图片后手动复制';
+    } else {
+      errorMessage = `复制失败: ${error.message}`;
+    }
+    
+    showErrorToast(errorMessage);
+  }
+  
   showImageContextMenu.value = false;
 }
 
-function handleSaveImage() {
-  if (currentLongPressMessage.value) {
-    const imageUrl = getImageUrl(currentLongPressMessage.value.filePath);
+async function handleSaveImage() {
+  if (!currentLongPressMessage.value) {
+    showImageContextMenu.value = false;
+    return;
+  }
+
+  try {
+    const message = currentLongPressMessage.value;
+    const imageUrl = getImageUrl(message.filePath);
+    
+    console.log('开始保存图片:', imageUrl);
+    
+    // 显示保存开始提示
+    showSuccessToast('正在保存图片...');
+    
+    // 获取图片数据
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`获取图片失败: ${response.status}`);
+    }
+    
+    const blob = await response.blob();
+    console.log('图片数据获取成功，大小:', blob.size, '类型:', blob.type);
+    
+    // 生成合适的文件名
+    let fileName = message.fileName || 'image';
+    
+    // 如果文件名没有扩展名，根据blob类型添加
+    if (!fileName.includes('.')) {
+      const mimeType = blob.type;
+      if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
+        fileName += '.jpg';
+      } else if (mimeType === 'image/png') {
+        fileName += '.png';
+      } else if (mimeType === 'image/gif') {
+        fileName += '.gif';
+      } else if (mimeType === 'image/webp') {
+        fileName += '.webp';
+      } else if (mimeType === 'image/bmp') {
+        fileName += '.bmp';
+      } else {
+        fileName += '.png'; // 默认使用png扩展名
+      }
+    }
+    
+    // 添加时间戳避免文件名冲突
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
+    const extension = fileName.substring(fileName.lastIndexOf('.'));
+    const finalFileName = `${nameWithoutExt}_${timestamp}${extension}`;
+    
+    // 创建blob URL
+    const blobUrl = URL.createObjectURL(blob);
+    
+    // 创建下载链接
     const link = document.createElement('a');
-    link.href = imageUrl;
-    link.download = currentLongPressMessage.value.fileName || 'image.png';
+    link.href = blobUrl;
+    link.download = finalFileName;
+    link.style.display = 'none';
+    
+    // 添加到DOM并触发下载
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    
+    // 清理资源
+    setTimeout(() => {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+    }, 100);
+    
+    console.log('图片保存成功:', finalFileName);
+    
+    // 显示成功提示
+    showSuccessToast(`图片已保存: ${finalFileName}`);
+    
+  } catch (error) {
+    console.error('保存图片失败:', error);
+    
+    // 显示错误提示
+    let errorMessage = '保存图片失败';
+    if (error.message.includes('获取图片失败')) {
+      errorMessage = '无法获取图片，请检查网络连接';
+    } else if (error.name === 'SecurityError') {
+      errorMessage = '图片保存受到安全限制，请尝试右键另存为';
+    } else if (error.message.includes('网络')) {
+      errorMessage = '网络连接异常，请稍后重试';
+    } else {
+      errorMessage = `保存失败: ${error.message}`;
+    }
+    
+    showErrorToast(errorMessage);
   }
+  
   showImageContextMenu.value = false;
 }
 
@@ -1777,6 +2023,47 @@ function downloadFile(message) {
   console.log('=== 文件下载调试信息结束 ===');
 }
 
+// Toast提示函数
+function showSuccessToast(message) {
+  toastMessage.value = message;
+  toastType.value = 'success';
+  showToast.value = true;
+  
+  // 清除之前的定时器
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+  }
+  
+  // 3秒后自动隐藏
+  toastTimer = setTimeout(() => {
+    showToast.value = false;
+  }, 3000);
+}
+
+function showErrorToast(message) {
+  toastMessage.value = message;
+  toastType.value = 'error';
+  showToast.value = true;
+  
+  // 清除之前的定时器
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+  }
+  
+  // 5秒后自动隐藏（错误信息显示时间稍长）
+  toastTimer = setTimeout(() => {
+    showToast.value = false;
+  }, 5000);
+}
+
+function hideToast() {
+  showToast.value = false;
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+}
+
 </script>
 
 <style scoped>
@@ -1784,16 +2071,36 @@ function downloadFile(message) {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #f8f9fa;
+  background: linear-gradient(135deg, #f8f9ff 0%, #e8f4fd 50%, #f0f8ff 100%);
+  position: relative;
+}
+
+.hybrid-chat-window::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(120, 219, 255, 0.1) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .chat-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem;
-  background: white;
-  border-bottom: 1px solid #ddd;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 255, 0.95) 100%);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(220, 230, 255, 0.5);
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.05);
+  position: relative;
+  z-index: 1;
 }
 
 .contact-info {
@@ -1802,12 +2109,20 @@ function downloadFile(message) {
 }
 
 .contact-avatar {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   overflow: hidden;
-  margin-right: 1rem;
+  margin-right: 1.2rem;
   position: relative;
+  box-shadow: 0 4px 15px rgba(0, 123, 255, 0.2);
+  border: 3px solid rgba(255, 255, 255, 0.8);
+  transition: all 0.3s ease;
+}
+
+.contact-avatar:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(0, 123, 255, 0.3);
 }
 
 .contact-avatar .avatar-image {
@@ -1815,32 +2130,50 @@ function downloadFile(message) {
   height: 100%;
   object-fit: cover;
   border-radius: 50%;
+  transition: transform 0.3s ease;
+}
+
+.contact-avatar:hover .avatar-image {
+  transform: scale(1.1);
 }
 
 .avatar-placeholder {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
-  background: #007bff;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: bold;
-  font-size: 1.2rem;
+  font-size: 1.4rem;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.avatar-placeholder:hover {
+  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
 }
 
 .contact-details h3 {
-  margin: 0 0 0.25rem 0;
-  font-size: 1.1rem;
+  margin: 0 0 0.4rem 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .connection-info {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  color: #666;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+  color: #5a6c7d;
+  font-weight: 500;
 }
 
 .action-buttons {
@@ -1852,72 +2185,130 @@ function downloadFile(message) {
 .history-btn,
 .voice-call-btn,
 .reset-call-btn {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   border: none;
   border-radius: 50%;
   color: white;
-  font-size: 1.2rem;
+  font-size: 1.3rem;
   cursor: pointer;
   transition: all 0.3s ease;
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.history-btn::before,
+.voice-call-btn::before,
+.reset-call-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  transition: left 0.5s;
+}
+
+.history-btn:hover::before,
+.voice-call-btn:hover:not(:disabled)::before,
+.reset-call-btn:hover::before {
+  left: 100%;
 }
 
 .history-btn {
-  background: #007bff;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
 .history-btn:hover {
-  background: #0056b3;
-  transform: scale(1.1);
+  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+  transform: scale(1.1) rotate(5deg);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
 }
 
 .voice-call-btn {
-  background: #4caf50;
+  background: linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%);
 }
 
 .voice-call-btn:hover:not(:disabled) {
-  background: #45a049;
-  transform: scale(1.1);
+  background: linear-gradient(135deg, #a8e6cf 0%, #56ab2f 100%);
+  transform: scale(1.1) rotate(-5deg);
+  box-shadow: 0 6px 20px rgba(86, 171, 47, 0.4);
 }
 
 .voice-call-btn:disabled {
-  background: #ccc;
+  background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
   cursor: not-allowed;
   opacity: 0.6;
+  transform: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .reset-call-btn {
-  background: #ff9800;
+  background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
 }
 
 .reset-call-btn:hover {
-  background: #f57c00;
-  transform: scale(1.1);
+  background: linear-gradient(135deg, #fecfef 0%, #ff9a9e 100%);
+  transform: scale(1.1) rotate(5deg);
+  box-shadow: 0 6px 20px rgba(255, 154, 158, 0.4);
 }
 
 .status-indicator {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
+  position: relative;
+  box-shadow: 0 0 8px rgba(40, 167, 69, 0.4);
 }
 
 .status-indicator.online {
-  background: #28a745;
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+  animation: statusPulse 2s infinite;
+}
+
+.status-indicator.online::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+  opacity: 0.3;
+  animation: statusRipple 2s infinite;
+}
+
+@keyframes statusPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+@keyframes statusRipple {
+  0% { transform: scale(1); opacity: 0.3; }
+  100% { transform: scale(1.5); opacity: 0; }
 }
 
 .status-text {
-  font-weight: 500;
+  font-weight: 600;
+  color: #28a745;
 }
 
 .connection-method {
-  padding: 0.125rem 0.375rem;
-  border-radius: 0.25rem;
-  font-size: 0.625rem;
-  font-weight: 500;
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
   text-transform: uppercase;
+  background: linear-gradient(135deg, rgba(0, 123, 255, 0.1) 0%, rgba(102, 126, 234, 0.1) 100%);
+  color: #667eea;
+  border: 1px solid rgba(102, 126, 234, 0.2);
+  letter-spacing: 0.5px;
 }
 
 .no-contact {
@@ -1928,12 +2319,26 @@ function downloadFile(message) {
 .messages-container {
   flex: 1;
   overflow-y: auto;
-  padding: 1rem;
+  padding: 1.5rem;
+  position: relative;
+  z-index: 1;
 }
 
 .message {
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
   display: flex;
+  animation: messageSlideIn 0.3s ease-out;
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .message.sent {
@@ -1945,16 +2350,31 @@ function downloadFile(message) {
 }
 
 .message-content {
-  max-width: 70%;
-  padding: 0.75rem 1rem;
-  border-radius: 1rem;
-  background: white;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  max-width: 75%;
+  padding: 1rem 1.25rem;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.message-content:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
 }
 
 .message.sent .message-content {
-  background: #007bff;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.message.received .message-content {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 255, 0.95) 100%);
+  border: 1px solid rgba(102, 126, 234, 0.1);
 }
 
 .message-text {
@@ -2052,14 +2472,15 @@ function downloadFile(message) {
 
 .file-info {
   flex: 1;
-  overflow: hidden;
+  min-width: 0;
 }
 
 .file-name {
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-wrap: break-word;
+  word-break: break-all;
+  white-space: normal;
+  line-height: 1.4;
 }
 
 .file-meta {
@@ -2103,14 +2524,15 @@ function downloadFile(message) {
 
 .file-info {
   flex: 1;
-  overflow: hidden;
+  min-width: 0;
 }
 
 .file-name {
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-wrap: break-word;
+  word-break: break-all;
+  white-space: normal;
+  line-height: 1.4;
 }
 
 .file-meta {
@@ -2263,18 +2685,53 @@ function downloadFile(message) {
 
 .empty-messages {
   text-align: center;
-  padding: 1rem;
+  padding: 3rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.8) 0%, rgba(248, 250, 255, 0.8) 100%);
+  border-radius: 20px;
+  margin: 2rem;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(102, 126, 234, 0.1);
 }
 
 .empty-icon {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: emptyIconFloat 3s ease-in-out infinite;
+}
+
+@keyframes emptyIconFloat {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+.empty-messages p {
+  font-size: 1.1rem;
+  color: #5a6c7d;
+  font-weight: 500;
+  margin: 0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .message-input-area {
-  padding: 1rem;
-  background: white;
-  border-top: 1px solid #ddd;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 255, 0.95) 100%);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(220, 230, 255, 0.5);
+  box-shadow: 0 -2px 20px rgba(0, 0, 0, 0.05);
+  position: relative;
+  z-index: 1;
 }
 
 /* 历史记录模态框样式 */
@@ -2893,6 +3350,100 @@ function downloadFile(message) {
 .history-message .burn-after-expired {
   font-size: 0.65rem;
   padding: 1px 4px;
+}
+
+/* Toast提示样式 */
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  pointer-events: auto;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-left: 4px solid;
+  min-width: 300px;
+  max-width: 400px;
+  animation: toastSlideIn 0.3s ease-out;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toast:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.toast.success {
+  border-left-color: #28a745;
+}
+
+.toast.error {
+  border-left-color: #dc3545;
+}
+
+.toast-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.toast.success .toast-icon {
+  color: #28a745;
+}
+
+.toast.error .toast-icon {
+  color: #dc3545;
+}
+
+.toast-message {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  line-height: 1.4;
+}
+
+.toast-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #666;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.toast-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: #333;
+}
+
+@keyframes toastSlideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 </style>

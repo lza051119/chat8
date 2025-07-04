@@ -152,7 +152,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { hybridStore } from '../store/hybrid-store.js'
 import { hybridApi } from '../api/hybrid-api.js'
 import AddContactModal from './addcontactmodal.vue'
@@ -186,6 +186,21 @@ const messageStats = computed(() => hybridStore.messageStats);
 onMounted(async () => {
   await loadContacts();
 });
+
+// 监听联系人列表变化，确保头像更新
+watch(() => hybridStore.contacts, (newContacts, oldContacts) => {
+  // 检查是否有头像变化
+  if (oldContacts && newContacts) {
+    newContacts.forEach(newContact => {
+      const oldContact = oldContacts.find(c => c.id === newContact.id);
+      if (oldContact && oldContact.avatar !== newContact.avatar) {
+        console.log(`联系人 ${newContact.username} 的头像已更新:`, newContact.avatar);
+        // 触发响应式更新
+        nextTick();
+      }
+    });
+  }
+}, { deep: true });
 
 // 方法
 async function loadContacts() {

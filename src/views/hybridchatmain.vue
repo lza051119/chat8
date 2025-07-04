@@ -3,7 +3,7 @@
     <!-- 顶部导航栏 -->
     <div class="top-navbar">
       <div class="nav-left">
-        <h1 class="app-title">安全即时通信</h1>
+        <h1 class="app-title">Whisper</h1>
         <div class="architecture-indicator">
           <span class="arch-badge">混合架构</span>
           <span class="p2p-status">
@@ -197,7 +197,9 @@
             <div v-else class="avatar-placeholder">{{ incomingCall.caller.username[0].toUpperCase() }}</div>
           </div>
           <h3 class="caller-name">{{ incomingCall.caller.username }}</h3>
-          <p class="call-type">正在呼叫您...</p>
+          <p class="call-type">
+            {{ incomingCall.callType === 'video' ? '视频通话' : '语音通话' }}呼叫中...
+          </p>
         </div>
         <div class="call-actions">
           <button @click="rejectCall" class="action-btn reject-btn">拒接</button>
@@ -340,19 +342,36 @@ onUnmounted(() => {
 
 // 方法
 function handleIncomingCall(callInfo) {
-  console.log('[来电处理] 收到来电信息:', callInfo);
+  console.log('[来电处理] 收到语音来电信息:', callInfo);
   const caller = hybridStore.getContact(callInfo.fromUserId);
   console.log('[来电处理] 查找到的联系人信息:', caller);
   console.log('[来电处理] 所有联系人列表:', hybridStore.getContacts());
   if (caller) {
     incomingCall.value = {
       ...callInfo,
-      caller: caller
+      caller: caller,
+      callType: 'voice'
     };
-    console.log('[来电处理] 来电信息已设置，将显示来电界面:', incomingCall.value);
+    console.log('[来电处理] 语音来电信息已设置，将显示来电界面:', incomingCall.value);
   } else {
-    console.warn(`收到未知联系人 ${callInfo.fromUserId} 的来电`);
+    console.warn(`收到未知联系人 ${callInfo.fromUserId} 的语音来电`);
     console.warn('[来电处理] 尝试通过用户ID查找联系人失败，fromUserId类型:', typeof callInfo.fromUserId);
+  }
+}
+
+function handleIncomingVideoCall(callInfo) {
+  console.log('[视频来电处理] 收到视频来电信息:', callInfo);
+  const caller = hybridStore.getContact(callInfo.fromUserId);
+  console.log('[视频来电处理] 查找到的联系人信息:', caller);
+  if (caller) {
+    incomingCall.value = {
+      ...callInfo,
+      caller: caller,
+      callType: 'video'
+    };
+    console.log('[视频来电处理] 视频来电信息已设置，将显示来电界面:', incomingCall.value);
+  } else {
+    console.warn(`收到未知联系人 ${callInfo.fromUserId} 的视频来电`);
   }
 }
 
@@ -360,21 +379,31 @@ async function acceptCall() {
   if (incomingCall.value) {
     const contactId = incomingCall.value.fromUserId;
     const callInfo = incomingCall.value;
+    const callType = incomingCall.value.callType || 'voice';
     
     try {
-      console.log('[接听通话] 开始接听来自用户', contactId, '的通话');
+      console.log(`[接听通话] 开始接听来自用户 ${contactId} 的${callType === 'video' ? '视频' : '语音'}通话`);
       
       // 先设置通话信息到store
       hybridStore.setCurrentCall(callInfo);
       
-      // 直接在这里接听通话，避免在VoiceCall页面重复处理
-      const result = await messaging.value.acceptVoiceCall(contactId, callInfo.offer);
-      console.log('[接听通话] 通话接听成功:', result);
+      if (callType === 'video') {
+        // 接听视频通话
+        const result = await messaging.value.acceptVideoCall(contactId, callInfo.offer, callInfo.encryptionKey);
+        console.log('[接听视频通话] 通话接听成功:', result);
+        
+        // 跳转到视频通话页面
+        router.push(`/video-call/${contactId}`);
+      } else {
+        // 接听语音通话
+        const result = await messaging.value.acceptVoiceCall(contactId, callInfo.offer);
+        console.log('[接听语音通话] 通话接听成功:', result);
+        
+        // 跳转到语音通话页面
+        router.push(`/voice-call/${contactId}`);
+      }
       
-      // 跳转到通话页面
-      router.push(`/voice-call/${contactId}`);
-      
-      // 延迟清理来电状态，确保VoiceCall页面能够正确识别通话状态
+      // 延迟清理来电状态，确保通话页面能够正确识别通话状态
       setTimeout(() => {
         incomingCall.value = null;
         console.log('[接听通话] 延迟清理来电状态完成');
@@ -388,15 +417,58 @@ async function acceptCall() {
       hybridStore.clearCurrentCallInfo();
       
       // 显示错误提示
-      showNotification('接听通话失败', 'error', '❌');
+      showNotification(`接听${callType === 'video' ? '视频' : '语音'}通话失败`, 'error', '❌');
     }
   }
 }
 
 async function rejectCall() {
   if (incomingCall.value) {
-    await messaging.value.rejectVoiceCall(incomingCall.value.fromUserId);
+    const callType = incomingCall.value.callType || 'voice';
+    const contactId = incomingCall.value.fromUserId;
+    
+    try {
+      if (callType === 'video') {
+        await messaging.value.rejectVideoCall(contactId);
+        console.log('[拒绝视频通话] 已拒绝来自用户', contactId, '的视频通话');
+      } else {
+        await messaging.value.rejectVoiceCall(contactId);
+        console.log('[拒绝语音通话] 已拒绝来自用户', contactId, '的语音通话');
+      }
+    } catch (error) {
+      console.error('[拒绝通话] 拒绝通话失败:', error);
+    }
+    
     incomingCall.value = null;
+  }
+}
+
+// 处理视频通话状态变化
+function handleVideoCallStatusChange(event) {
+  console.log('[视频通话状态] 状态变化:', event);
+  
+  switch (event.type) {
+    case 'call_ended_remote':
+    case 'call_ended_local':
+      console.log('[视频通话状态] 通话已结束，清理来电状态');
+      // 清理来电状态
+      if (incomingCall.value) {
+        incomingCall.value = null;
+      }
+      // 清理当前通话信息
+      hybridStore.clearCurrentCallInfo();
+      break;
+      
+    case 'call_rejected':
+      console.log('[视频通话状态] 通话被拒绝');
+      if (incomingCall.value) {
+        incomingCall.value = null;
+      }
+      break;
+      
+    default:
+      console.log('[视频通话状态] 其他状态变化:', event.type);
+      break;
   }
 }
 
@@ -491,7 +563,9 @@ async function initializeMessaging() {
 
       // 设置来电处理
       messaging.value.onVoiceCallReceived = handleIncomingCall;
-      console.log('[来电处理] onVoiceCallReceived 回调已设置');
+      messaging.value.onVideoCallReceived = handleIncomingVideoCall;
+      messaging.value.onVideoCallStatusChanged = handleVideoCallStatusChange;
+      console.log('[来电处理] onVoiceCallReceived、onVideoCallReceived 和 onVideoCallStatusChanged 回调已设置');
       
       console.log('混合消息系统初始化完成，在线状态已同步给好友');
     } else {
@@ -730,9 +804,17 @@ async function logout() {
 
 .app-title {
   margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #333;
+  font-size: 2rem;
+  font-weight: 700;
+  font-family: 'Brush Script MT', 'Lucida Handwriting', 'Segoe Script', cursive;
+  background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #feca57, #ff9ff3);
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientShift 3s ease-in-out infinite;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+  letter-spacing: 1px;
 }
 
 .architecture-indicator {
@@ -1294,6 +1376,18 @@ async function logout() {
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
   }
 }
 

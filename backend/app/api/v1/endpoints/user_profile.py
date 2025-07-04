@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.schemas.user import UserProfileCreate, UserProfileUpdate, UserProfileOut, ResponseModel, UserOut
+from app.schemas.user import UserProfileCreate, UserProfileUpdate, UserProfileOut, UserProfileWithUserInfo, ResponseModel, UserOut
 from app.services.user_profile_service import UserProfileService
 from app.core.security import get_current_user
 from typing import Optional
@@ -30,7 +30,7 @@ async def get_user_profile(
             detail=f"获取个人信息失败: {str(e)}"
         )
 
-@router.get("/profile/{user_id}", response_model=UserProfileOut)
+@router.get("/profile/{user_id}", response_model=UserProfileWithUserInfo)
 async def get_user_profile_by_id(
     user_id: int,
     current_user: UserOut = Depends(get_current_user)

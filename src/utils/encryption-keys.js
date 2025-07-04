@@ -3,7 +3,8 @@
  * 用于管理用户的端到端加密密钥
  */
 
-import { saveLocalKey, getLocalKey, deleteLocalKey } from './key-storage';
+import { getLocalKey, saveLocalKey, deleteLocalKey } from './key-storage.js';
+import { getChinaTimeISO } from './timeUtils.js';
 import { initDatabase } from '../client_db/database';
 
 /**
@@ -34,7 +35,7 @@ export async function saveUserEncryptionKeys(userId, encryptionData) {
     // 保存密钥元数据
     const metadata = {
       userId,
-      createdAt: new Date().toISOString(),
+      createdAt: getChinaTimeISO(),
       hasPublicKey: !!public_key,
       hasRegistrationId: !!registration_id,
       hasPrekeyBundle: !!prekey_bundle

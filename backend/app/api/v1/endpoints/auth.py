@@ -24,7 +24,25 @@ def login(user: UserLogin):
 
 @router.get('/auth/me', response_model=UserOut)
 def get_me(current_user: UserOut = Depends(get_current_user)):
-    return current_user
+    # 从数据库获取最新的用户信息，确保头像等信息是最新的
+    from app.db.database import SessionLocal
+    from app.db.models import User
+    
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == int(current_user.id)).first()
+        if user:
+            return UserOut(
+                id=user.id,
+                username=user.username,
+                email=user.email,
+                avatar=user.avatar,
+                created_at=user.created_at,
+                updated_at=user.updated_at
+            )
+        return current_user
+    finally:
+        db.close()
 
 @router.post('/auth/logout')
 def logout():

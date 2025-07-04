@@ -11,7 +11,7 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    port: 8080,
+    port: process.env.PORT || 8080, // 支持环境变量指定端口，默认8080
     proxy: {
       '/api': {
         target: 'http://localhost:8000',

@@ -1,9 +1,14 @@
 {
-  "name": "chat8-frontend",
+  "name": "whisper-frontend",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host --open",
+    "dev:8080": "PORT=8080 vite --host --open",
+    "dev:8081": "PORT=8081 vite --host --open",
+    "dev:8082": "PORT=8082 vite --host --open",
+    "dev:multi": "./start-multi-ports.sh",
+    "dev:smart": "./start-smart-ports.sh",
     "build": "vite build",
     "preview": "vite preview"
   },

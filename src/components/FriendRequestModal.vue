@@ -68,6 +68,7 @@
 import { ref, watch } from 'vue'
 import { hybridApi } from '../api/hybrid-api.js'
 import { hybridStore } from '../store/hybrid-store.js'
+import { toChinaTime, getChinaTime } from '../utils/timeUtils.js'
 
 export default {
   name: 'FriendRequestModal',
@@ -140,8 +141,8 @@ export default {
     }
 
     const formatTime = (timeString) => {
-      const date = new Date(timeString)
-      const now = new Date()
+      const date = toChinaTime(timeString)
+      const now = getChinaTime()
       const diff = now - date
       
       if (diff < 60000) { // 1分钟内
@@ -151,7 +152,11 @@ export default {
       } else if (diff < 86400000) { // 24小时内
         return `${Math.floor(diff / 3600000)}小时前`
       } else {
-        return date.toLocaleDateString()
+        // 手动格式化日期，确保显示中国时间
+        const year = date.getFullYear()
+        const month = (date.getMonth() + 1).toString().padStart(2, '0')
+        const day = date.getDate().toString().padStart(2, '0')
+        return `${year}/${month}/${day}`
       }
     }
 
