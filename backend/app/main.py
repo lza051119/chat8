@@ -21,6 +21,7 @@ from app.core.security import decode_access_token
 from app.services.user_states_update import initialize_user_states_service, cleanup_user_states_service
 from app.db.database import SessionLocal
 from app.db.models import User
+from app.core.config import UPLOADS_DIR
 
 # 创建 ConnectionManager 单例
 connection_manager = ConnectionManager()
@@ -124,7 +125,7 @@ app.include_router(upload.router, prefix="/api/v1")
 app.include_router(encryption.router, prefix="/api/v1/encryption")
 app.include_router(steganography.router, prefix="/api/steganography", tags=["steganography"])
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=str(UPLOADS_DIR)), name="static")
 
 @app.get("/api/ping")
 def ping():
