@@ -253,7 +253,7 @@ class HybridMessaging {
   // 预连接功能已删除
   
   // 智能发送消息（自动选择P2P或C/S）
-  async sendMessage(toUserId, content) {
+  async sendMessage(toUserId, content, options = {}) {
     try {
       console.log(`[发送消息] 开始发送消息给用户 ${toUserId}`);
       
@@ -261,7 +261,7 @@ class HybridMessaging {
       if (this.p2pConnections.has(toUserId)) {
         console.log(`[发送消息] 使用已建立的P2P连接`);
         try {
-          const p2pResult = await this.sendP2PMessage(toUserId, content);
+          const p2pResult = await this.sendP2PMessage(toUserId, content, options);
           if (p2pResult.success) {
             console.log(`[发送消息] P2P发送成功:`, p2pResult);
             return { success: true, method: 'P2P', ...p2pResult };
@@ -284,7 +284,7 @@ class HybridMessaging {
       if (userStatus.online && userStatus.supportsP2P) {
         console.log(`[发送消息] 用户在线且支持P2P，尝试即时P2P连接`);
         try {
-          const p2pResult = await this.sendP2PMessage(toUserId, content);
+          const p2pResult = await this.sendP2PMessage(toUserId, content, options);
           if (p2pResult.success) {
             console.log(`[发送消息] P2P发送成功:`, p2pResult);
             return { success: true, method: 'P2P', ...p2pResult };
@@ -299,7 +299,7 @@ class HybridMessaging {
       
       // P2P失败或用户离线，使用服务器转发
       console.log(`[发送消息] 使用服务器转发模式`);
-      const serverResult = await this.sendServerMessage(toUserId, content);
+      const serverResult = await this.sendServerMessage(toUserId, content, options);
       console.log(`[发送消息] 服务器转发结果:`, serverResult);
       return serverResult;
       
@@ -356,7 +356,7 @@ class HybridMessaging {
   }
 
   // P2P直连发送消息
-  async sendP2PMessage(toUserId, content) {
+  async sendP2PMessage(toUserId, content, options = {}) {
     try {
       let dataChannel = this.p2pConnections.get(toUserId);
       
@@ -373,11 +373,16 @@ class HybridMessaging {
         timestamp: new Date().toISOString()
       };
       
+      // 添加阅后即焚支持
+      if (options.burnAfter && options.burnAfter > 0) {
+        message.destroy_after = options.burnAfter;
+      }
+      
       dataChannel.send(JSON.stringify(message));
       
       // 存储发送的P2P消息到数据库
       try {
-        await addMessage({
+        const dbMessage = {
           from: this.currentUserId,
           to: toUserId,
           content: content,
@@ -385,7 +390,14 @@ class HybridMessaging {
           method: 'P2P',
           encrypted: false,
           messageType: 'text'
-        });
+        };
+        
+        // 添加阅后即焚字段
+        if (options.burnAfter && options.burnAfter > 0) {
+          dbMessage.destroy_after = Math.floor(Date.now() / 1000) + options.burnAfter;
+        }
+        
+        await addMessage(dbMessage);
         console.log('发送的P2P消息已存储到数据库');
       } catch (error) {
         console.error('存储P2P消息到数据库失败:', error);
@@ -491,6 +503,12 @@ class HybridMessaging {
               hiddenMessage: message.hiddenMessage || null
             };
             
+            // 添加阅后即焚支持
+            if (message.destroy_after && message.destroy_after > 0) {
+              // destroy_after已经是发送方设置的绝对时间戳，直接使用
+              msgData.destroy_after = message.destroy_after;
+            }
+            
             try {
               await addMessage(msgData);
             } catch (dbError) {
@@ -509,7 +527,12 @@ class HybridMessaging {
         };
 
         dataChannel.onerror = (error) => {
-          console.error(`[P2P] 数据通道错误:`, error);
+          console.warn(`[P2P] 数据通道错误 (用户 ${toUserId}):`, error.error?.message || error.type || '连接异常');
+          // 清理连接状态
+          this.p2pConnections.delete(toUserId);
+          if (this.onP2PStatusChanged) {
+            this.onP2PStatusChanged(toUserId, 'disconnected');
+          }
           safeReject(error);
         };
 
@@ -623,6 +646,11 @@ class HybridMessaging {
               hiddenMessage: message.hiddenMessage || null
             };
             
+            // 添加阅后即焚支持
+            if (message.destroy_after && message.destroy_after > 0) {
+              msgData.destroy_after = Math.floor(Date.now() / 1000) + message.destroy_after;
+            }
+            
             try {
               await addMessage(msgData);
               console.log('P2P消息已保存到本地数据库');
@@ -643,7 +671,12 @@ class HybridMessaging {
         };
         
         dataChannel.onerror = (error) => {
-          console.error(`[P2P] 接收方数据通道错误:`, error);
+          console.warn(`[P2P] 接收方数据通道错误 (来自用户 ${data.from}):`, error.error?.message || error.type || '连接异常');
+          // 清理连接状态
+          this.p2pConnections.delete(data.from);
+          if (this.onP2PStatusChanged) {
+            this.onP2PStatusChanged(data.from, 'disconnected');
+          }
         };
       };
 
@@ -796,17 +829,24 @@ class HybridMessaging {
   }
 
   // 服务器转发消息（C/S模式）
-  async sendServerMessage(toUserId, content) {
+  async sendServerMessage(toUserId, content, options = {}) {
     try {
-      console.log('发送服务器消息:', { toUserId, content });
+      console.log('发送服务器消息:', { toUserId, content, options });
       
-      const { hybridApi } = await import('../api/hybrid-api.js');
-      const response = await hybridApi.sendMessage({
+      const messageData = {
         to: toUserId,
         content: content,
         encrypted: false,
         method: 'Server'
-      });
+      };
+      
+      // 添加阅后即焚支持
+      if (options.burnAfter && options.burnAfter > 0) {
+        messageData.destroy_after = options.burnAfter;
+      }
+      
+      const { hybridApi } = await import('../api/hybrid-api.js');
+      const response = await hybridApi.sendMessage(messageData);
 
       const result = response.data;
       console.log('服务器响应结果:', result);
@@ -822,6 +862,12 @@ class HybridMessaging {
           messageType: 'text',
           encrypted: false
         };
+        
+        // 添加阅后即焚字段
+        if (options.burnAfter && options.burnAfter > 0) {
+          sentMsgData.destroy_after = Math.floor(Date.now() / 1000) + options.burnAfter;
+        }
+        
         await addMessage(sentMsgData);
         console.log('发送的服务器消息已保存到本地数据库');
       } catch (dbError) {
@@ -875,6 +921,11 @@ class HybridMessaging {
       // 添加隐写术支持
       hiddenMessage: data.hiddenMessage || data.hidden_message || null
     };
+    
+    // 添加阅后即焚支持
+    if (data.destroy_after && data.destroy_after > 0) {
+      msgData.destroy_after = Math.floor(Date.now() / 1000) + data.destroy_after;
+    }
     
     // 存入本地数据库
     try {

@@ -1,7 +1,8 @@
 import sqlite3
 import os
 import json
-from datetime import datetime, timedelta
+import time
+from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from contextlib import contextmanager
 
@@ -56,6 +57,7 @@ class MessageDBService:
                     hidding_message TEXT DEFAULT NULL,  -- 隐藏消息内容（隐写术）
                     is_burn_after_read BOOLEAN DEFAULT FALSE,  -- 是否为阅读后销毁消息
                     readable_duration INTEGER DEFAULT NULL,  -- 可读时间（秒），NULL表示永久可读
+                    destroy_after INTEGER DEFAULT NULL,  -- 阅后即焚时间（秒），从接收时开始计算
                     is_read BOOLEAN DEFAULT FALSE,  -- 是否已读
                     read_time TEXT DEFAULT NULL,  -- 阅读时间
                     is_deleted BOOLEAN DEFAULT FALSE,  -- 是否已删除
@@ -115,6 +117,11 @@ class MessageDBService:
             except sqlite3.OperationalError:
                 pass  # 字段已存在
             
+            try:
+                cursor.execute('ALTER TABLE messages ADD COLUMN destroy_after INTEGER DEFAULT NULL')
+            except sqlite3.OperationalError:
+                pass  # 字段已存在
+            
             # 迁移旧的 hidden_message 字段到 hidding_message
             try:
                 # 检查是否存在旧字段
@@ -167,6 +174,7 @@ class MessageDBService:
                     message_data.get('hidding_message'),
                     message_data.get('is_burn_after_read', False),
                     message_data.get('readable_duration'),
+                    message_data.get('destroy_after'),  # 阅后即焚时间
                     message_data.get('call_duration'),
                     message_data.get('call_status'),
                     message_data.get('call_start_time'),
@@ -178,9 +186,9 @@ class MessageDBService:
                     INSERT OR REPLACE INTO messages (
                         message_id, from_user, to_user, content, timestamp, 
                         received_time, method, encrypted, message_type, file_path, file_name,
-                        hidding_message, is_burn_after_read, readable_duration, 
+                        hidding_message, is_burn_after_read, readable_duration, destroy_after,
                         call_duration, call_status, call_start_time, call_end_time, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', base_values)
                 
                 conn.commit()
@@ -189,6 +197,32 @@ class MessageDBService:
         except Exception as e:
             print(f"添加消息失败: {e}")
             return False
+    
+    @staticmethod
+    def clean_expired_messages(user_id: int):
+        """清理过期的阅后即焚消息"""
+        try:
+            with MessageDBService.get_db_connection(user_id) as conn:
+                cursor = conn.cursor()
+                
+                # 获取当前时间戳（秒）
+                current_timestamp = int(time.time())
+                
+                # 删除已过期的阅后即焚消息
+                cursor.execute('''
+                    DELETE FROM messages 
+                    WHERE destroy_after IS NOT NULL 
+                    AND destroy_after <= ?
+                ''', (current_timestamp,))
+                
+                deleted_count = cursor.rowcount
+                conn.commit()
+                
+                if deleted_count > 0:
+                    print(f"清理了 {deleted_count} 条过期的阅后即焚消息")
+                
+        except Exception as e:
+            print(f"清理过期消息时出错: {e}")
     
     @staticmethod
     def get_messages_with_friend(
@@ -200,6 +234,9 @@ class MessageDBService:
     ) -> Tuple[List[Dict], int, bool]:
         """获取与指定好友的聊天记录"""
         try:
+            # 首先清理过期消息
+            MessageDBService.clean_expired_messages(user_id)
+            
             MessageDBService.init_user_database(user_id)
             
             with MessageDBService.get_db_connection(user_id) as conn:
@@ -261,6 +298,7 @@ class MessageDBService:
                         'decryptHidden': safe_get(row, 'decrypt_hidden', False),
                         'is_burn_after_read': bool(row['is_burn_after_read']),
                         'readable_duration': row['readable_duration'],
+                        'destroy_after': safe_get(row, 'destroy_after'),
                         'is_read': bool(row['is_read']),
                         'read_time': row['read_time'],
                         'callDuration': safe_get(row, 'call_duration'),

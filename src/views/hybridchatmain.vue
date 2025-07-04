@@ -415,6 +415,51 @@ function showFriendProfileInfo(userId) {
   showFriendProfile.value = true;
 }
 
+// 预加载有阅后即焚消息的对话
+async function preloadBurnAfterMessages() {
+  try {
+    console.log('🔍 开始预加载阅后即焚消息...');
+    const { getMessagesWithFriend } = await import('../client_db/database.js');
+    const contacts = hybridStore.getContacts();
+    
+    let totalLoadedConversations = 0;
+    let totalBurnAfterMessages = 0;
+    
+    // 遍历所有联系人，检查是否有阅后即焚消息
+    for (const contact of contacts) {
+      try {
+        const result = await getMessagesWithFriend(contact.id, { limit: 50, offset: 0 });
+        
+        // 检查是否有未过期的阅后即焚消息
+        const currentTime = Math.floor(Date.now() / 1000);
+        const burnAfterMessages = result.messages.filter(msg => 
+          msg.destroy_after && msg.destroy_after > currentTime
+        );
+        
+        if (burnAfterMessages.length > 0) {
+          // 如果有阅后即焚消息，加载到store中
+          hybridStore.setMessages(contact.id, result.messages);
+          totalLoadedConversations++;
+          totalBurnAfterMessages += burnAfterMessages.length;
+          console.log(`📥 预加载联系人 ${contact.id} 的对话，包含 ${burnAfterMessages.length} 条阅后即焚消息`);
+        }
+      } catch (error) {
+        console.warn(`⚠️ 预加载联系人 ${contact.id} 的消息失败:`, error);
+      }
+    }
+    
+    if (totalLoadedConversations > 0) {
+      console.log(`✅ 预加载完成：${totalLoadedConversations} 个对话，${totalBurnAfterMessages} 条阅后即焚消息`);
+      // 确保清理定时器正在运行
+      hybridStore.startBurnAfterCleanupTimer();
+    } else {
+      console.log('ℹ️ 没有发现需要预加载的阅后即焚消息');
+    }
+  } catch (error) {
+    console.error('❌ 预加载阅后即焚消息失败:', error);
+  }
+}
+
 async function initializeMessaging() {
   try {
     // 首先重新初始化数据库（用户登录后才有token）
@@ -441,7 +486,8 @@ async function initializeMessaging() {
       // 加载联系人在线状态
       await updateContactsOnlineStatus();
       
-      // 消息历史将在打开特定聊天窗口时按需加载
+      // 预加载所有有阅后即焚消息的对话，确保刷新后功能正常
+      await preloadBurnAfterMessages();
 
       // 设置来电处理
       messaging.value.onVoiceCallReceived = handleIncomingCall;

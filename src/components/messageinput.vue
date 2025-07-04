@@ -16,6 +16,7 @@
           <input 
             type="checkbox" 
             v-model="burnMode" 
+            @change="onBurnModeChange"
           />
           <span class="control-label">🔥 阅后即焚</span>
         </label>
@@ -132,8 +133,23 @@ function getSendButtonText() {
 // 事件处理
 function onImageHideModeChange() {
   if (imageHideMode.value) {
-    // 启用图像隐藏时，自动启用阅后即焚
-    burnMode.value = true;
+    console.log('启用图像隐藏模式');
+    // 图像隐藏和阅后即焚互斥
+    if (burnMode.value) {
+      burnMode.value = false;
+      console.log('已自动关闭阅后即焚模式');
+    }
+  }
+}
+
+function onBurnModeChange() {
+  if (burnMode.value) {
+    console.log('启用阅后即焚模式');
+    // 图像隐藏和阅后即焚互斥
+    if (imageHideMode.value) {
+      imageHideMode.value = false;
+      console.log('已自动关闭图像隐藏模式');
+    }
   }
 }
 

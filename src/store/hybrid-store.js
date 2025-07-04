@@ -42,7 +42,10 @@ const state = reactive({
     callId: null,
     startTime: null,
     status: 'idle' // idle, connecting, ringing, active, ended
-  }
+  },
+
+  // 阅后即焚消息清理定时器
+  burnAfterCleanupTimer: null
 });
 
 export const hybridStore = {
@@ -557,6 +560,13 @@ export const hybridStore = {
     // 生成唯一的消息ID，避免重复
     const messageId = message.id || `msg_${message.from}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
+    // 处理阅后即焚时间
+    let destroyAfter = null;
+    if (message.destroy_after && message.destroy_after > 0) {
+      // destroy_after已经是发送方设置的绝对时间戳，直接使用
+      destroyAfter = message.destroy_after;
+    }
+    
     const messageObj = {
       id: messageId,
       from: message.from,
@@ -570,6 +580,8 @@ export const hybridStore = {
       filePath: message.filePath || message.file_path || null,
       fileName: message.fileName || message.file_name || null,
       imageUrl: message.imageUrl || null,
+      // 添加阅后即焚支持
+      destroy_after: destroyAfter,
       // 添加语音通话记录特殊字段
       callDuration: message.callDuration || null,
       callStatus: message.callStatus || null,
@@ -597,7 +609,8 @@ export const hybridStore = {
         messageType: message.messageType || message.message_type || 'text',
         filePath: message.filePath || message.file_path || null,
         fileName: message.fileName || message.file_name || null,
-        imageUrl: message.imageUrl || null
+        imageUrl: message.imageUrl || null,
+        destroy_after: destroyAfter
       };
       
       await addMessage(dbMessage);
@@ -636,6 +649,9 @@ export const hybridStore = {
       // 然后初始化连接
       await hybridMessaging.initialize(state.user.id, state.token);
       
+      // 启动阅后即焚消息清理定时器
+      this.startBurnAfterCleanupTimer();
+      
       console.log('HybridMessaging服务初始化成功，回调函数已设置');
       return true;
     } catch (error) {
@@ -646,6 +662,9 @@ export const hybridStore = {
 
   // 清理HybridMessaging服务
   cleanupHybridMessaging() {
+    // 停止阅后即焚消息清理定时器
+    this.stopBurnAfterCleanupTimer();
+    
     if (state.hybridMessaging) {
       state.hybridMessaging.cleanup();
       state.hybridMessaging = null;
@@ -665,6 +684,74 @@ export const hybridStore = {
       startTime: null,
       status: 'idle'
     };
+  },
+
+  // 清理过期的阅后即焚消息
+  cleanExpiredBurnAfterMessages() {
+    const currentTime = Math.floor(Date.now() / 1000);
+    let totalCleaned = 0;
+    
+    // 检查 state.conversations 是否存在
+    if (!state.conversations || typeof state.conversations !== 'object') {
+      console.log('state.conversations 不存在或不是对象，跳过清理');
+      return 0;
+    }
+    
+    // 遍历所有联系人的对话
+    Object.keys(state.conversations).forEach(contactId => {
+      const conversation = state.conversations[contactId];
+      if (!conversation || !Array.isArray(conversation.messages)) {
+        return; // 跳过无效的对话
+      }
+      
+      const messages = conversation.messages;
+      const originalLength = messages.length;
+      
+      // 过滤掉过期的阅后即焚消息
+      conversation.messages = messages.filter(message => {
+        if (message.destroy_after && message.destroy_after <= currentTime) {
+          console.log(`清理过期的阅后即焚消息: ${message.id}`);
+          return false; // 移除过期消息
+        }
+        return true; // 保留未过期消息
+      });
+      
+      const cleanedCount = originalLength - conversation.messages.length;
+      totalCleaned += cleanedCount;
+      
+      if (cleanedCount > 0) {
+        console.log(`联系人 ${contactId} 清理了 ${cleanedCount} 条过期消息`);
+      }
+    });
+    
+    if (totalCleaned > 0) {
+      console.log(`总共清理了 ${totalCleaned} 条过期的阅后即焚消息`);
+    }
+    
+    return totalCleaned;
+  },
+
+  // 启动定期清理过期消息的定时器
+  startBurnAfterCleanupTimer() {
+    // 每5秒检查一次过期消息，确保及时清理
+    if (state.burnAfterCleanupTimer) {
+      clearInterval(state.burnAfterCleanupTimer);
+    }
+    
+    state.burnAfterCleanupTimer = setInterval(() => {
+      this.cleanExpiredBurnAfterMessages();
+    }, 5000); // 5秒
+    
+    console.log('阅后即焚消息清理定时器已启动（每5秒检查一次）');
+  },
+
+  // 停止清理定时器
+  stopBurnAfterCleanupTimer() {
+    if (state.burnAfterCleanupTimer) {
+      clearInterval(state.burnAfterCleanupTimer);
+      state.burnAfterCleanupTimer = null;
+      console.log('阅后即焚消息清理定时器已停止');
+    }
   },
 
   updateCallStatus(status) {

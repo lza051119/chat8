@@ -183,6 +183,13 @@
               {{ message.method === 'P2P' ? 'P2P' : '服务器' }}
             </span>
             <span v-if="message.sending" class="sending-indicator">发送中...</span>
+            <!-- 阅后即焚倒计时 -->
+            <span v-if="message.destroy_after && getBurnAfterCountdown(message.destroy_after) > 0" class="burn-after-countdown">
+              🔥 {{ formatBurnAfterTime(getBurnAfterCountdown(message.destroy_after)) }}
+            </span>
+            <span v-else-if="message.destroy_after && getBurnAfterCountdown(message.destroy_after) <= 0" class="burn-after-expired">
+              🔥 已焚毁
+            </span>
           </div>
         </div>
       </div>
@@ -306,6 +313,13 @@
                   <span class="message-time">{{ formatTime(message.timestamp) }}</span>
                   <span v-if="message.method" class="message-method">
                     {{ message.method === 'P2P' ? 'P2P' : '服务器' }}
+                  </span>
+                  <!-- 阅后即焚倒计时 -->
+                  <span v-if="message.destroy_after && getBurnAfterCountdown(message.destroy_after) > 0" class="burn-after-countdown">
+                    🔥 {{ formatBurnAfterTime(getBurnAfterCountdown(message.destroy_after)) }}
+                  </span>
+                  <span v-else-if="message.destroy_after && getBurnAfterCountdown(message.destroy_after) <= 0" class="burn-after-expired">
+                    🔥 已焚毁
                   </span>
                 </div>
               </div>
@@ -468,6 +482,9 @@ const showImageContextMenu = ref(false);
 const showImageModal = ref(false);
 const currentImageMessage = ref(null);
 
+// 阅后即焚倒计时更新变量
+const burnAfterUpdateTrigger = ref(0);
+
 const contact = computed(() => hybridStore.currentContact);
 const currentUser = computed(() => hybridStore.user);
 
@@ -541,6 +558,9 @@ onMounted(async () => {
   }
   scrollToBottom();
   
+  // 启动阅后即焚倒计时
+  startBurnAfterTimer();
+  
   // 在控制台提供调试功能
   if (typeof window !== 'undefined') {
     window.enableFileDebugMode = () => {
@@ -558,12 +578,24 @@ onMounted(async () => {
   }
 });
 
+onUnmounted(() => {
+  // 清理定时器
+  stopBurnAfterTimer();
+});
+
 async function loadHistoryMessages(friendId) {
   if (!currentUser.value) return;
   try {
     const result = await getMessagesWithFriend(friendId, { limit: 50, offset: 0 });
     hybridStore.setMessages(friendId, result.messages);
     console.log(`已从本地数据库加载与 ${friendId} 的 ${result.messages.length} 条历史消息`);
+    
+    // 检查是否有阅后即焚消息，如果有则重新启动清理定时器
+    const hasDestroyAfterMessages = result.messages.some(msg => msg.destroy_after && msg.destroy_after > Math.floor(Date.now() / 1000));
+    if (hasDestroyAfterMessages) {
+      console.log('检测到阅后即焚消息，重新启动清理定时器');
+      hybridStore.startBurnAfterCleanupTimer();
+    }
   } catch (error) {
     console.error('从本地数据库加载历史消息失败:', error);
     // 如果本地数据库加载失败，尝试从服务器加载
@@ -573,6 +605,13 @@ async function loadHistoryMessages(friendId) {
         const messages = response.data.messages || [];
         hybridStore.setMessages(friendId, messages);
         console.log(`已从服务器加载与 ${friendId} 的 ${messages.length} 条历史消息`);
+        
+        // 检查是否有阅后即焚消息，如果有则重新启动清理定时器
+        const hasDestroyAfterMessages = messages.some(msg => msg.destroy_after && msg.destroy_after > Math.floor(Date.now() / 1000));
+        if (hasDestroyAfterMessages) {
+          console.log('检测到阅后即焚消息，重新启动清理定时器');
+          hybridStore.startBurnAfterCleanupTimer();
+        }
       }
     } catch (serverError) {
       console.error('从服务器加载历史消息也失败:', serverError);
@@ -681,6 +720,61 @@ function scrollToBottom() {
   }
 }
 
+// 阅后即焚相关函数
+function getBurnAfterCountdown(destroyAfter) {
+  if (!destroyAfter) return 0;
+  // 使用触发器来确保响应式更新
+  burnAfterUpdateTrigger.value;
+  const currentTime = Math.floor(Date.now() / 1000);
+  return destroyAfter - currentTime;
+}
+
+function formatBurnAfterTime(seconds) {
+  if (seconds <= 0) return '已过期';
+  
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+  
+  if (hours > 0) {
+    return `${hours}时${minutes}分${remainingSeconds}秒`;
+  } else if (minutes > 0) {
+    return `${minutes}分${remainingSeconds}秒`;
+  } else {
+    return `${remainingSeconds}秒`;
+  }
+}
+
+// 定时器用于更新倒计时
+const burnAfterTimer = ref(null);
+
+// 启动阅后即焚倒计时更新
+function startBurnAfterTimer() {
+  if (burnAfterTimer.value) {
+    clearInterval(burnAfterTimer.value);
+  }
+  
+  burnAfterTimer.value = setInterval(() => {
+    // 强制更新组件以刷新倒计时显示
+    // 通过修改响应式变量来触发重新渲染
+    const currentTime = Date.now();
+    // 检查是否有阅后即焚消息需要更新
+    const allMessages = hybridStore.getMessages(contact.value?.id);
+    if (allMessages && allMessages.some(msg => msg.destroy_after && msg.destroy_after > Math.floor(currentTime / 1000))) {
+      // 更新触发器来强制重新计算倒计时
+      burnAfterUpdateTrigger.value++;
+    }
+  }, 1000);
+}
+
+// 停止倒计时定时器
+function stopBurnAfterTimer() {
+  if (burnAfterTimer.value) {
+    clearInterval(burnAfterTimer.value);
+    burnAfterTimer.value = null;
+  }
+}
+
 
 
 async function handleMessageSent(messageData, callback) {
@@ -733,6 +827,13 @@ async function handleMessageSent(messageData, callback) {
       throw new Error('消息服务未初始化');
     }
     
+    // 处理阅后即焚时间
+    let destroyAfter = null;
+    if (messageData.burnAfter && messageData.burnAfter > 0) {
+      // 计算过期时间戳（当前时间 + burnAfter秒）
+      destroyAfter = Math.floor(Date.now() / 1000) + messageData.burnAfter;
+    }
+    
     // 先创建本地消息对象（立即显示）
     tempMessage = {
       id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -742,7 +843,8 @@ async function handleMessageSent(messageData, callback) {
       timestamp: new Date().toISOString(),
       method: 'Server',
       encrypted: false,
-      sending: true
+      sending: true,
+      destroy_after: destroyAfter
     };
     
     // 立即添加到本地显示
@@ -754,7 +856,11 @@ async function handleMessageSent(messageData, callback) {
     scrollToBottom();
     
     // 发送消息到服务器
-    const result = await hybridMessaging.sendMessage(contact.value.id, messageData.content);
+    const options = {};
+    if (messageData.burnAfter && messageData.burnAfter > 0) {
+      options.burnAfter = messageData.burnAfter;
+    }
+    const result = await hybridMessaging.sendMessage(contact.value.id, messageData.content, options);
     console.log('消息发送结果:', result);
     
     if (result.success) {
@@ -764,7 +870,8 @@ async function handleMessageSent(messageData, callback) {
         id: result.id || tempMessage.id,
         method: result.method || 'Server',
         timestamp: result.timestamp || tempMessage.timestamp,
-        sending: false
+        sending: false,
+        destroy_after: destroyAfter
       };
       
       // 更新store中的消息
@@ -2739,4 +2846,53 @@ function downloadFile(message) {
 .message.sent .call-duration {
   color: rgba(255, 255, 255, 0.8);
 }
+
+/* 阅后即焚倒计时样式 */
+.burn-after-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  background: linear-gradient(135deg, #ff6b6b, #ff8e8e);
+  color: white;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 1px 3px rgba(255, 107, 107, 0.3);
+  animation: burnAfterPulse 2s infinite;
+}
+
+.burn-after-expired {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  background: linear-gradient(135deg, #6c757d, #868e96);
+  color: white;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  opacity: 0.7;
+}
+
+@keyframes burnAfterPulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 1px 3px rgba(255, 107, 107, 0.3);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 2px 6px rgba(255, 107, 107, 0.5);
+  }
+}
+
+/* 历史记录中的阅后即焚样式 */
+.history-message .burn-after-countdown,
+.history-message .burn-after-expired {
+  font-size: 0.65rem;
+  padding: 1px 4px;
+}
+
 </style>
