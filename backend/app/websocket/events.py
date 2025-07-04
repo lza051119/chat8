@@ -114,12 +114,22 @@ async def handle_private_message(from_id, msg, manager: ConnectionManager):
             recipient_online=recipient_online
         )
         
-        # 构建推送消息数据
+        # 构建推送消息数据 - 推送给在线用户时使用明文内容
+        push_content = content
+        # 如果消息被加密了，需要为接收方解密
+        if saved_msg and saved_msg.encrypted and saved_msg.method == 'E2E':
+            try:
+                from services import message_service
+                push_content = message_service.decrypt_message_content(to_id, from_id, saved_msg.content)
+            except Exception as e:
+                print(f"Warning: Failed to decrypt message for push: {e}")
+                push_content = "[解密失败的消息]"
+        
         message_data = {
             "id": saved_msg.id if saved_msg else f"{from_id}_{to_id}_{int(datetime.now().timestamp())}",
             "from": from_id,
             "to": to_id,
-            "content": content,
+            "content": push_content,  # 推送明文内容
             "messageType": message_type,
             "timestamp": saved_msg.timestamp.isoformat() if saved_msg else datetime.utcnow().isoformat(),
             "encrypted": msg.get("encrypted", True),
@@ -205,12 +215,22 @@ async def handle_image_message(from_id, msg, manager: ConnectionManager):
             recipient_online=recipient_online
         )
         
-        # 构建推送消息数据
+        # 构建推送消息数据 - 推送给在线用户时使用明文内容
+        push_content = content
+        # 如果消息被加密了，需要为接收方解密
+        if saved_msg and saved_msg.encrypted and saved_msg.method == 'E2E':
+            try:
+                from services import message_service
+                push_content = message_service.decrypt_message_content(to_id, from_id, saved_msg.content)
+            except Exception as e:
+                print(f"Warning: Failed to decrypt image message for push: {e}")
+                push_content = "[解密失败的图片消息]"
+        
         message_data = {
             "id": saved_msg.id if saved_msg else f"{from_id}_{to_id}_{int(datetime.now().timestamp())}",
             "from": from_id,
             "to": to_id,
-            "content": content,
+            "content": push_content,  # 推送明文内容
             "messageType": "image",
             "filePath": file_path,
             "fileName": file_name,

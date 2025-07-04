@@ -606,7 +606,6 @@ function formatTime(timestamp) {
   }
   
   const date = new Date(dateStr);
-  const now = new Date();
   
   // 检查日期是否有效
   if (isNaN(date.getTime())) {
@@ -614,19 +613,24 @@ function formatTime(timestamp) {
     return '无效时间';
   }
   
-  // 获取今天的日期字符串（本地时区）
-  const today = new Date();
-  const yesterday = new Date(today);
+  // 转换为中国时间（UTC+8）
+  const chinaTime = new Date(date.getTime() + (8 * 60 * 60 * 1000));
+  const now = new Date();
+  const chinaToday = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+  
+  // 获取今天和昨天的日期（中国时区）
+  const yesterday = new Date(chinaToday);
   yesterday.setDate(yesterday.getDate() - 1);
   
-  const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const messageDate = new Date(chinaTime.getFullYear(), chinaTime.getMonth(), chinaTime.getDate());
+  const todayDate = new Date(chinaToday.getFullYear(), chinaToday.getMonth(), chinaToday.getDate());
   const yesterdayDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
   
-  // 获取时间部分（小时:分钟）
-  const timeStr = date.toLocaleTimeString('zh-CN', { 
+  // 获取时间部分（小时:分钟）- 使用中国时间
+  const timeStr = chinaTime.toLocaleTimeString('zh-CN', { 
     hour: '2-digit', 
-    minute: '2-digit'
+    minute: '2-digit',
+    timeZone: 'Asia/Shanghai'
   });
   
   if (messageDate.getTime() === todayDate.getTime()) {
@@ -635,18 +639,20 @@ function formatTime(timestamp) {
   } else if (messageDate.getTime() === yesterdayDate.getTime()) {
     // 昨天的消息显示"昨天 时间"
     return '昨天 ' + timeStr;
-  } else if (date.getFullYear() === today.getFullYear()) {
+  } else if (chinaTime.getFullYear() === chinaToday.getFullYear()) {
     // 今年的其他日期显示 MM-DD XX:XX
-    return date.toLocaleDateString('zh-CN', {
+    return chinaTime.toLocaleDateString('zh-CN', {
       month: '2-digit',
-      day: '2-digit'
+      day: '2-digit',
+      timeZone: 'Asia/Shanghai'
     }) + ' ' + timeStr;
   } else {
     // 往年的消息显示 YY-MM-DD XX:XX
-    return date.getFullYear().toString().slice(-2) + '-' + 
-           date.toLocaleDateString('zh-CN', {
+    return chinaTime.getFullYear().toString().slice(-2) + '-' + 
+           chinaTime.toLocaleDateString('zh-CN', {
              month: '2-digit',
-             day: '2-digit'
+             day: '2-digit',
+             timeZone: 'Asia/Shanghai'
            }) + ' ' + timeStr;
   }
 }
@@ -1410,7 +1416,8 @@ async function handleHideDecryptResult() {
     
     // 保存收回解密状态到数据库
     try {
-      await fetch(`/api/v1/local-storage/messages/${message.id}/field`, {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+      await fetch(`${API_BASE_URL}/v1/local-storage/messages/${message.id}/field`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -1500,7 +1507,8 @@ async function extractHiddenMessage(message) {
     
     // 调用隐写术提取API
     console.log('调用隐写术API提取隐藏信息...');
-    const extractResponse = await fetch('/api/steganography/extract', {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+        const extractResponse = await fetch(`${API_BASE_URL}/steganography/extract`, {
       method: 'POST',
       body: formData
     });
@@ -1526,7 +1534,8 @@ async function extractHiddenMessage(message) {
       
       // 更新数据库中的收回解密状态
       try {
-        await fetch(`/api/v1/local-storage/messages/${message.id}/field`, {
+        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+        await fetch(`${API_BASE_URL}/v1/local-storage/messages/${message.id}/field`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',

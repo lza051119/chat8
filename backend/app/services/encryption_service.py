@@ -233,14 +233,93 @@ try {{
 """
         return self._run_node_script(script)
     
-    def decrypt_message(self, ciphertext_data: Dict, recipient_identity_private: str,
-                      sender_address: str, recipient_address: str) -> str:
+    def encrypt_message(self, sender_id: int, recipient_id: int, message: str) -> Dict:
         """
-        解密消息
+        使用会话密钥加密消息
         """
-        # 实现消息解密逻辑
-        # 这里需要根据消息类型选择合适的解密方法
-        pass
+        try:
+            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+            from cryptography.hazmat.primitives import padding as sym_padding
+            import secrets
+            
+            # 获取会话密钥
+            session_result = self.get_session_key(sender_id, recipient_id)
+            if not session_result.get('success'):
+                return {'success': False, 'error': f'No session key found: {session_result.get("error")}'}
+            
+            session_key = base64.b64decode(session_result['session_key'])
+            
+            # 生成随机IV
+            iv = secrets.token_bytes(16)
+            
+            # 使用AES-256-CBC加密
+            cipher = Cipher(algorithms.AES(session_key), modes.CBC(iv))
+            encryptor = cipher.encryptor()
+            
+            # 对消息进行PKCS7填充
+            padder = sym_padding.PKCS7(128).padder()
+            padded_data = padder.update(message.encode('utf-8'))
+            padded_data += padder.finalize()
+            
+            # 加密
+            ciphertext = encryptor.update(padded_data) + encryptor.finalize()
+            
+            # 组合IV和密文，并进行base64编码
+            encrypted_data = iv + ciphertext
+            encrypted_message = base64.b64encode(encrypted_data).decode()
+            
+            return {
+                'success': True,
+                'encrypted_message': encrypted_message
+            }
+            
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def decrypt_message(self, recipient_id: int, sender_id: int, encrypted_message: str) -> Dict:
+        """
+        使用会话密钥解密消息
+        """
+        try:
+            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+            from cryptography.hazmat.primitives import padding as sym_padding
+            
+            # 获取会话密钥
+            session_result = self.get_session_key(recipient_id, sender_id)
+            if not session_result.get('success'):
+                return {'success': False, 'error': f'No session key found: {session_result.get("error")}'}
+            
+            session_key = base64.b64decode(session_result['session_key'])
+            
+            # 解码base64
+            encrypted_data = base64.b64decode(encrypted_message)
+            
+            # 分离IV和密文
+            iv = encrypted_data[:16]
+            ciphertext = encrypted_data[16:]
+            
+            # 使用AES-256-CBC解密
+            cipher = Cipher(algorithms.AES(session_key), modes.CBC(iv))
+            decryptor = cipher.decryptor()
+            
+            # 解密
+            padded_data = decryptor.update(ciphertext) + decryptor.finalize()
+            
+            # 去除PKCS7填充
+            unpadder = sym_padding.PKCS7(128).unpadder()
+            data = unpadder.update(padded_data)
+            data += unpadder.finalize()
+            
+            # 转换为字符串
+            decrypted_message = data.decode('utf-8')
+            
+            return {
+                'success': True,
+                'decrypted_message': decrypted_message
+            }
+            
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
     
     def setup_user_encryption(self, user_id: int) -> Dict:
         """
@@ -290,19 +369,7 @@ try {{
                     'success': True,
                     'public_key': identity_keys['public_key'],
                     'registration_id': registration_id,
-                    'prekey_bundle': {
-                        'registration_id': prekey_bundle['registration_id'],
-                        'device_id': prekey_bundle['device_id'],
-                        'prekey_id': prekey_bundle['prekey_id'],
-                        'prekey_public': prekey_bundle['prekey_public'],
-                        'signed_prekey_id': prekey_bundle['signed_prekey_id'],
-                        'signed_prekey_public': prekey_bundle['signed_prekey_public'],
-                        'signed_prekey_signature': prekey_bundle['signed_prekey_signature'],
-                        'kyber_prekey_id': prekey_bundle['kyber_prekey_id'],
-                        'kyber_public_key': prekey_bundle['kyber_public_key'],
-                        'kyber_signature': prekey_bundle['kyber_signature'],
-                        'identity_public_key': prekey_bundle['identity_public_key']
-                    }
+                    'has_prekey_bundle': True
                 }
                 
             finally:
@@ -352,6 +419,183 @@ try {{
             return None
         except Exception:
             return None
+    
+    def get_user_keys_info(self, user_id: int) -> Dict:
+        """
+        获取用户的密钥信息
+        """
+        try:
+            # 从数据库获取公钥
+            db: Session = SessionLocal()
+            try:
+                user = db.query(User).filter(User.id == user_id).first()
+                if not user:
+                    return {'error': 'User not found'}
+                
+                public_key = user.public_key
+                if not public_key:
+                    return {'error': 'User has no public key'}
+                
+                # 从文件获取私钥和其他信息
+                keys_file = f"/Users/tsuki/Desktop/大二下/chat8/backend/user_keys/user_{user_id}_keys.json"
+                private_key = None
+                registration_id = None
+                
+                if os.path.exists(keys_file):
+                    with open(keys_file, 'r') as f:
+                        keys_data = json.load(f)
+                    private_key = keys_data.get('identity_private_key')
+                    registration_id = keys_data.get('registration_id')
+                
+                return {
+                    'public_key': public_key,
+                    'private_key': private_key,
+                    'registration_id': registration_id,
+                    'has_complete_keys': bool(public_key and private_key)
+                }
+                
+            finally:
+                db.close()
+                
+        except Exception as e:
+            return {'error': str(e)}
+    
+    def establish_session(self, user1_id: int, user2_id: int) -> Dict:
+        """
+        为两个用户建立加密会话，生成对称会话密钥
+        """
+        try:
+            from app.db.models import SessionKey
+            import secrets
+            from cryptography.hazmat.primitives import serialization, hashes
+            from cryptography.hazmat.primitives.asymmetric import rsa, padding
+            
+            db: Session = SessionLocal()
+            try:
+                # 检查是否已存在会话密钥
+                existing_session = db.query(SessionKey).filter(
+                    ((SessionKey.user1_id == user1_id) & (SessionKey.user2_id == user2_id)) |
+                    ((SessionKey.user1_id == user2_id) & (SessionKey.user2_id == user1_id))
+                ).first()
+                
+                if existing_session:
+                    return {'success': True, 'message': 'Session already exists'}
+                
+                # 获取两个用户的公钥
+                user1 = db.query(User).filter(User.id == user1_id).first()
+                user2 = db.query(User).filter(User.id == user2_id).first()
+                
+                if not user1 or not user2:
+                    return {'success': False, 'error': 'User not found'}
+                
+                if not user1.public_key or not user2.public_key:
+                    return {'success': False, 'error': 'User public key not found'}
+                
+                # 生成32字节的对称会话密钥
+                session_key = secrets.token_bytes(32)
+                session_key_b64 = base64.b64encode(session_key).decode()
+                
+                # 用用户1的公钥加密会话密钥
+                user1_public_key = serialization.load_pem_public_key(user1.public_key.encode())
+                encrypted_for_user1 = user1_public_key.encrypt(
+                    session_key,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
+                )
+                
+                # 用用户2的公钥加密会话密钥
+                user2_public_key = serialization.load_pem_public_key(user2.public_key.encode())
+                encrypted_for_user2 = user2_public_key.encrypt(
+                    session_key,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
+                )
+                
+                # 存储到数据库
+                session_key_record = SessionKey(
+                    user1_id=user1_id,
+                    user2_id=user2_id,
+                    session_key_encrypted=base64.b64encode(encrypted_for_user1).decode(),
+                    session_key_encrypted_for_user2=base64.b64encode(encrypted_for_user2).decode()
+                )
+                
+                db.add(session_key_record)
+                db.commit()
+                
+                return {
+                    'success': True,
+                    'message': 'Session established successfully',
+                    'session_key_id': session_key_record.id,
+                    'session_key': session_key_b64  # 返回明文密钥供客户端使用
+                }
+                
+            finally:
+                db.close()
+                
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def get_session_key(self, user_id: int, other_user_id: int) -> Dict:
+        """
+        获取与指定用户的会话密钥
+        """
+        try:
+            from app.db.models import SessionKey
+            from cryptography.hazmat.primitives import serialization, hashes
+            from cryptography.hazmat.primitives.asymmetric import padding
+            
+            db: Session = SessionLocal()
+            try:
+                # 查找会话密钥记录
+                session_record = db.query(SessionKey).filter(
+                    ((SessionKey.user1_id == user_id) & (SessionKey.user2_id == other_user_id)) |
+                    ((SessionKey.user1_id == other_user_id) & (SessionKey.user2_id == user_id))
+                ).first()
+                
+                if not session_record:
+                    return {'success': False, 'error': 'Session not found'}
+                
+                # 获取当前用户的私钥
+                private_key = self.load_user_private_key(user_id)
+                if not private_key:
+                    return {'success': False, 'error': 'User private key not found'}
+                
+                # 解密会话密钥
+                private_key_obj = serialization.load_pem_private_key(private_key.encode(), password=None)
+                
+                # 确定使用哪个加密的会话密钥
+                if session_record.user1_id == user_id:
+                    encrypted_session_key = base64.b64decode(session_record.session_key_encrypted)
+                else:
+                    encrypted_session_key = base64.b64decode(session_record.session_key_encrypted_for_user2)
+                
+                # 解密会话密钥
+                session_key = private_key_obj.decrypt(
+                    encrypted_session_key,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
+                )
+                
+                return {
+                    'success': True,
+                    'session_key': base64.b64encode(session_key).decode(),
+                    'session_id': session_record.id
+                }
+                
+            finally:
+                db.close()
+                
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
 
 # 全局加密服务实例
 encryption_service = EncryptionService()

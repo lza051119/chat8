@@ -84,34 +84,11 @@ class UserKeysService:
             # 加密私钥
             encrypted_private_key, salt = UserKeysService._encrypt_private_key(private_key, password)
             
-            # 生成Signal协议相关密钥（模拟）
-            identity_public, identity_private = UserKeysService.generate_rsa_keypair()
-            signed_prekey_public, signed_prekey_private = UserKeysService.generate_rsa_keypair()
-            
-            # 加密Signal私钥
-            encrypted_identity_private, identity_salt = UserKeysService._encrypt_private_key(identity_private, password)
-            encrypted_signed_prekey_private, signed_salt = UserKeysService._encrypt_private_key(signed_prekey_private, password)
-            
-            # 生成一次性预密钥（模拟）
-            one_time_prekeys = []
-            for i in range(10):  # 生成10个一次性预密钥
-                otk_public, otk_private = UserKeysService.generate_rsa_keypair()
-                encrypted_otk_private, otk_salt = UserKeysService._encrypt_private_key(otk_private, password)
-                one_time_prekeys.append({
-                    "id": i,
-                    "public_key": otk_public,
-                    "private_key": encrypted_otk_private,
-                    "salt": otk_salt
-                })
-            
             # 创建密钥记录
             user_keys = UserKeys(
                 user_id=user_id,
                 public_key=public_key,
                 private_key_encrypted=f"{encrypted_private_key}:{salt}",  # 格式：加密密钥:盐值
-                identity_key=identity_public,  # 简化为只存储公钥
-                signed_prekey=signed_prekey_public,  # 简化为只存储公钥
-                onetime_prekeys=json.dumps(one_time_prekeys),
                 key_version=1,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
@@ -127,11 +104,9 @@ class UserKeysService:
                 "data": {
                     "user_id": user_id,
                     "public_key": public_key,
-                    "identity_key": identity_public,
-                    "signed_prekey": signed_prekey_public,
-                    "one_time_prekeys_count": len(one_time_prekeys),
+                    "private_key": private_key,
                     "key_version": user_keys.key_version,
-                    "created_at": user_keys.created_at
+                    "created_at": user_keys.created_at.isoformat() if user_keys.created_at else None
                 }
             }
             
@@ -153,23 +128,13 @@ class UserKeysService:
                     "message": "用户密钥不存在"
                 }
             
-            # 解析一次性预密钥
-            one_time_prekeys = json.loads(user_keys.onetime_prekeys) if user_keys.onetime_prekeys else []
-            public_one_time_prekeys = [{
-                "id": otk["id"],
-                "public_key": otk["public_key"]
-            } for otk in one_time_prekeys]
-            
             return {
                 "success": True,
                 "data": {
                     "user_id": user_id,
                     "public_key": user_keys.public_key,
-                    "identity_key": user_keys.identity_key,
-                    "signed_prekey": user_keys.signed_prekey,
-                    "one_time_prekeys": public_one_time_prekeys,
                     "key_version": user_keys.key_version,
-                    "updated_at": user_keys.updated_at
+                    "updated_at": user_keys.updated_at.isoformat() if user_keys.updated_at else None
                 }
             }
             
@@ -195,35 +160,12 @@ class UserKeysService:
                 encrypted_private_key, salt = user_keys.private_key_encrypted.split(":")
                 private_key = UserKeysService._decrypt_private_key(encrypted_private_key, salt, password)
                 
-                encrypted_identity_private, identity_salt = user_keys.identity_key_private.split(":")
-                identity_private = UserKeysService._decrypt_private_key(encrypted_identity_private, identity_salt, password)
-                
-                encrypted_signed_prekey_private, signed_salt = user_keys.signed_prekey_private.split(":")
-                signed_prekey_private = UserKeysService._decrypt_private_key(encrypted_signed_prekey_private, signed_salt, password)
-                
-                # 解密一次性预密钥
-                one_time_prekeys = json.loads(user_keys.one_time_prekeys) if user_keys.one_time_prekeys else []
-                decrypted_one_time_prekeys = []
-                for otk in one_time_prekeys:
-                    decrypted_otk_private = UserKeysService._decrypt_private_key(otk["private_key"], otk["salt"], password)
-                    decrypted_one_time_prekeys.append({
-                        "id": otk["id"],
-                        "public_key": otk["public_key"],
-                        "private_key": decrypted_otk_private
-                    })
-                
                 return {
                     "success": True,
                     "data": {
                         "user_id": user_id,
                         "public_key": user_keys.public_key,
                         "private_key": private_key,
-                        "identity_key_public": user_keys.identity_key_public,
-                        "identity_key_private": identity_private,
-                        "signed_prekey_public": user_keys.signed_prekey_public,
-                        "signed_prekey_private": signed_prekey_private,
-                        "signed_prekey_signature": user_keys.signed_prekey_signature,
-                        "one_time_prekeys": decrypted_one_time_prekeys,
                         "key_version": user_keys.key_version
                     }
                 }
@@ -257,7 +199,7 @@ class UserKeysService:
             
             # 更新密钥
             user_keys.public_key = public_key
-            user_keys.private_key = f"{encrypted_private_key}:{salt}"
+            user_keys.private_key_encrypted = f"{encrypted_private_key}:{salt}"
             user_keys.key_version += 1
             user_keys.updated_at = datetime.utcnow()
             
@@ -270,7 +212,7 @@ class UserKeysService:
                     "user_id": user_id,
                     "public_key": public_key,
                     "key_version": user_keys.key_version,
-                    "updated_at": user_keys.updated_at
+                    "updated_at": user_keys.updated_at.isoformat() if user_keys.updated_at else None
                 }
             }
             

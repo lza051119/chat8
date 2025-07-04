@@ -383,7 +383,8 @@ class HybridMessaging {
           content: content,
           timestamp: message.timestamp,
           method: 'P2P',
-          encrypted: false
+          encrypted: false,
+          messageType: 'text'
         });
         console.log('发送的P2P消息已存储到数据库');
       } catch (error) {
@@ -817,7 +818,9 @@ class HybridMessaging {
           to: toUserId,
           content: content,
           timestamp: result.timestamp || new Date().toISOString(),
-          method: 'Server'
+          method: 'Server',
+          messageType: 'text',
+          encrypted: false
         };
         await addMessage(sentMsgData);
         console.log('发送的服务器消息已保存到本地数据库');
@@ -1681,7 +1684,8 @@ class HybridMessaging {
       
       // 发送到后端保存
       try {
-        const response = await fetch('/api/v1/messages', {
+        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+        const response = await fetch(`${API_BASE_URL}/v1/messages`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

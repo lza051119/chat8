@@ -92,9 +92,6 @@ class UserKeys(Base):
     user_id = Column(Integer, ForeignKey('users.id'), unique=True, nullable=False)
     public_key = Column(Text, nullable=False)  # 用户公钥
     private_key_encrypted = Column(Text, nullable=False)  # 用户私钥（加密存储）
-    identity_key = Column(Text, nullable=True)  # Signal身份密钥
-    signed_prekey = Column(Text, nullable=True)  # Signal签名预密钥
-    onetime_prekeys = Column(Text, nullable=True)  # 一次性预密钥（JSON格式）
     key_version = Column(Integer, default=1)  # 密钥版本
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
@@ -117,3 +114,18 @@ class UserProfile(Base):
     
     # 关系
     user = relationship('User', foreign_keys=[user_id])
+
+class SessionKey(Base):
+    __tablename__ = 'session_keys'
+    id = Column(Integer, primary_key=True, index=True)
+    user1_id = Column(Integer, ForeignKey('users.id'), nullable=False)  # 用户1 ID
+    user2_id = Column(Integer, ForeignKey('users.id'), nullable=False)  # 用户2 ID
+    session_key_encrypted = Column(Text, nullable=False)  # 对称会话密钥（用用户1公钥加密）
+    session_key_encrypted_for_user2 = Column(Text, nullable=True)  # 对称会话密钥（用用户2公钥加密）
+    key_version = Column(Integer, default=1)  # 密钥版本
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    
+    # 关系
+    user1 = relationship('User', foreign_keys=[user1_id])
+    user2 = relationship('User', foreign_keys=[user2_id])

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试隐写术功能</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .image-preview {
+            max-width: 300px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>隐写术功能测试</h1>
+    
+    <div class="form-group">
+        <label for="imageFile">选择图片文件:</label>
+        <input type="file" id="imageFile" accept="image/*">
+    </div>
+    
+    <div class="form-group">
+        <label for="secretMessage">要隐藏的秘密信息:</label>
+        <textarea id="secretMessage" rows="3" placeholder="输入要隐藏在图片中的秘密信息..."></textarea>
+    </div>
+    
+    <div class="form-group">
+        <label for="password">密码:</label>
+        <input type="password" id="password" placeholder="输入用于加密的密码">
+    </div>
+    
+    <button id="embedBtn" onclick="embedMessage()">嵌入信息到图片</button>
+    
+    <div id="result"></div>
+    
+    <script>
+        const API_BASE_URL = 'http://localhost:8000/api';
+        
+        async function embedMessage() {
+            const imageFile = document.getElementById('imageFile').files[0];
+            const secretMessage = document.getElementById('secretMessage').value;
+            const password = document.getElementById('password').value;
+            const resultDiv = document.getElementById('result');
+            const embedBtn = document.getElementById('embedBtn');
+            
+            // 验证输入
+            if (!imageFile) {
+                showResult('请选择一个图片文件', 'error');
+                return;
+            }
+            
+            if (!secretMessage.trim()) {
+                showResult('请输入要隐藏的秘密信息', 'error');
+                return;
+            }
+            
+            if (!password.trim()) {
+                showResult('请输入密码', 'error');
+                return;
+            }
+            
+            // 验证文件类型
+            if (!imageFile.type.startsWith('image/')) {
+                showResult('请选择有效的图片文件', 'error');
+                return;
+            }
+            
+            embedBtn.disabled = true;
+            embedBtn.textContent = '处理中...';
+            
+            try {
+                // 创建FormData
+                const formData = new FormData();
+                formData.append('image', imageFile);
+                formData.append('secret_message', secretMessage);
+                formData.append('password', password);
+                
+                console.log('发送隐写术请求到:', `${API_BASE_URL}/steganography/embed`);
+                
+                // 调用隐写术API
+                const response = await fetch(`${API_BASE_URL}/steganography/embed`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                console.log('响应状态:', response.status);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('API错误响应:', errorText);
+                    throw new Error(`隐写术处理失败: ${response.status} ${response.statusText}`);
+                }
+                
+                // 获取处理后的图片
+                const blob = await response.blob();
+                
+                // 创建下载链接
+                const url = URL.createObjectURL(blob);
+                const downloadLink = document.createElement('a');
+                downloadLink.href = url;
+                downloadLink.download = `stego_${imageFile.name}`;
+                downloadLink.textContent = '下载隐写术图片';
+                
+                // 创建预览图片
+                const img = document.createElement('img');
+                img.src = url;
+                img.className = 'image-preview';
+                img.alt = '隐写术处理后的图片';
+                
+                const successDiv = document.createElement('div');
+                successDiv.innerHTML = `
+                    <h3>隐写术处理成功！</h3>
+                    <p>秘密信息已成功嵌入到图片中。</p>
+                    <p>原始文件: ${imageFile.name}</p>
+                    <p>处理后大小: ${(blob.size / 1024).toFixed(2)} KB</p>
+                `;
+                successDiv.appendChild(downloadLink);
+                successDiv.appendChild(document.createElement('br'));
+                successDiv.appendChild(document.createElement('br'));
+                successDiv.appendChild(img);
+                
+                showResult(successDiv, 'success');
+                
+            } catch (error) {
+                console.error('隐写术处理失败:', error);
+                showResult(`处理失败: ${error.message}`, 'error');
+            } finally {
+                embedBtn.disabled = false;
+                embedBtn.textContent = '嵌入信息到图片';
+            }
+        }
+        
+        function showResult(content, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.className = `result ${type}`;
+            
+            if (typeof content === 'string') {
+                resultDiv.innerHTML = content;
+            } else {
+                resultDiv.innerHTML = '';
+                resultDiv.appendChild(content);
+            }
+        }
+        
+        // 文件选择预览
+        document.getElementById('imageFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                console.log('选择的文件:', file.name, '大小:', (file.size / 1024).toFixed(2), 'KB');
+            }
+        });
+    </script>
+</body>
+</html>

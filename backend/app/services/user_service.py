@@ -50,14 +50,12 @@ def register_user(user: UserCreate):
         
         response_data = {"user": user_out, "token": token}
         
-        # 添加密钥信息到响应
+        # 添加密钥信息到响应（不包含私钥，私钥应该保密）
         if keys_result.get('success'):
             response_data["keys"] = {
                 "public_key": keys_result['data']['public_key'],
-                "identity_key": keys_result['data']['identity_key'],
-            "signed_prekey": keys_result['data']['signed_prekey'],
-                "one_time_prekeys_count": keys_result['data']['one_time_prekeys_count'],
-                "key_version": keys_result['data']['key_version']
+                "key_version": keys_result['data']['key_version'],
+                "has_private_key": True
             }
         
         # 添加原有加密信息

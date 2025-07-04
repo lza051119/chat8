@@ -234,13 +234,146 @@ export const clearAllMessages = async () => {
   }
 };
 
+/**
+ * 存储用户密钥到本地存储
+ * @param {object} keyData - 密钥数据对象
+ * @returns {Promise<boolean>} - 返回操作结果
+ */
+export const storeUserKeys = async (keyData) => {
+  try {
+    // 将密钥数据存储到localStorage
+    const keysToStore = {
+      publicKey: keyData.public_key,
+      privateKey: keyData.private_key,
+      identityKey: keyData.identity_key,
+      signedPrekey: keyData.signed_prekey,
+      oneTimePrekeys: keyData.one_time_prekeys || [],
+      keyVersion: keyData.key_version || 1,
+      createdAt: keyData.created_at || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    // 获取当前用户ID
+    const userStr = localStorage.getItem('user');
+    if (!userStr) {
+      throw new Error('用户未登录，无法存储密钥');
+    }
+    
+    const user = JSON.parse(userStr);
+    const userId = user.id;
+    
+    // 存储到localStorage，使用用户ID作为键名后缀
+    localStorage.setItem(`user_keys_${userId}`, JSON.stringify(keysToStore));
+    
+    console.log('🔐 用户密钥已存储到本地');
+    return true;
+  } catch (error) {
+    console.error('❌ 存储用户密钥失败:', error.message);
+    throw error;
+  }
+};
+
+/**
+ * 从本地存储获取用户密钥
+ * @param {number} userId - 用户ID（可选，默认使用当前登录用户）
+ * @returns {Promise<object|null>} - 返回密钥数据或null
+ */
+export const getUserKeys = async (userId = null) => {
+  try {
+    // 如果没有提供userId，使用当前登录用户
+    if (!userId) {
+      const userStr = localStorage.getItem('user');
+      if (!userStr) {
+        throw new Error('用户未登录，无法获取密钥');
+      }
+      const user = JSON.parse(userStr);
+      userId = user.id;
+    }
+    
+    // 从localStorage获取密钥
+    const keysStr = localStorage.getItem(`user_keys_${userId}`);
+    if (!keysStr) {
+      console.log('ℹ️  本地未找到用户密钥');
+      return null;
+    }
+    
+    const keys = JSON.parse(keysStr);
+    console.log('🔐 已从本地获取用户密钥');
+    return keys;
+  } catch (error) {
+    console.error('❌ 获取用户密钥失败:', error.message);
+    throw error;
+  }
+};
+
+/**
+ * 清除用户密钥
+ * @param {number} userId - 用户ID（可选，默认使用当前登录用户）
+ * @returns {Promise<boolean>} - 返回操作结果
+ */
+export const clearUserKeys = async (userId = null) => {
+  try {
+    // 如果没有提供userId，使用当前登录用户
+    if (!userId) {
+      const userStr = localStorage.getItem('user');
+      if (!userStr) {
+        throw new Error('用户未登录，无法清除密钥');
+      }
+      const user = JSON.parse(userStr);
+      userId = user.id;
+    }
+    
+    // 从localStorage删除密钥
+    localStorage.removeItem(`user_keys_${userId}`);
+    console.log('🗑️ 用户密钥已清除');
+    return true;
+  } catch (error) {
+    console.error('❌ 清除用户密钥失败:', error.message);
+    throw error;
+  }
+};
+
+/**
+ * 验证本地密钥的完整性
+ * @returns {Promise<boolean>} - 返回验证结果
+ */
+export const validateUserKeys = async () => {
+  try {
+    const keys = await getUserKeys();
+    if (!keys) {
+      return false;
+    }
+    
+    // 检查必要的密钥字段
+    const requiredFields = ['publicKey', 'privateKey', 'identityKey', 'signedPrekey'];
+    for (const field of requiredFields) {
+      if (!keys[field]) {
+        console.warn(`⚠️  缺少必要的密钥字段: ${field}`);
+        return false;
+      }
+    }
+    
+    console.log('✅ 本地密钥验证通过');
+    return true;
+  } catch (error) {
+    console.error('❌ 密钥验证失败:', error.message);
+    return false;
+  }
+};
+
 // 在控制台提供全局访问函数
 if (typeof window !== 'undefined') {
   window.checkChat8LocalStorage = checkDatabaseStatus;
   window.clearChat8Messages = clearAllMessages;
+  window.getUserKeys = getUserKeys;
+  window.clearUserKeys = clearUserKeys;
+  window.validateUserKeys = validateUserKeys;
   console.log('💡 提示: 在浏览器控制台输入以下命令:');
   console.log('  - checkChat8LocalStorage() 查看本地存储状态');
   console.log('  - clearChat8Messages() 清空所有消息');
+  console.log('  - getUserKeys() 获取当前用户密钥');
+  console.log('  - clearUserKeys() 清除当前用户密钥');
+  console.log('  - validateUserKeys() 验证密钥完整性');
 }
 
 // 导出一个虚拟的数据库对象以保持兼容性

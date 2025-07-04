@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试前端消息发送</title>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <h1>测试前端消息发送</h1>
+    <div id="status"></div>
+    <button onclick="testMessage()">发送测试消息</button>
+    <div id="result"></div>
+
+    <script>
+        const api = axios.create({
+            baseURL: 'http://localhost:8000/api/v1',
+            timeout: 10000
+        });
+
+        let token = null;
+        let userId = null;
+
+        async function login() {
+            try {
+                const response = await api.post('/auth/login', {
+                    username: 'testuser1_1751584222',
+                    password: 'password123'
+                });
+                
+                token = response.data.data.token;
+                userId = response.data.data.user.userId;
+                
+                document.getElementById('status').innerHTML = `登录成功，用户ID: ${userId}`;
+                return true;
+            } catch (error) {
+                document.getElementById('status').innerHTML = `登录失败: ${error.message}`;
+                return false;
+            }
+        }
+
+        async function testMessage() {
+            if (!token) {
+                const loginSuccess = await login();
+                if (!loginSuccess) return;
+            }
+
+            try {
+                // 模拟前端发送消息的数据格式
+                const messageData = {
+                    to: 38,
+                    content: '前端测试消息 - ' + new Date().toISOString(),
+                    messageType: 'text',
+                    method: 'Server',
+                    encrypted: false
+                };
+
+                console.log('发送消息数据:', messageData);
+
+                const response = await api.post('/local-storage/messages', messageData, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                document.getElementById('result').innerHTML = `
+                    <h3>发送成功</h3>
+                    <p>状态: ${response.status}</p>
+                    <p>响应: ${JSON.stringify(response.data, null, 2)}</p>
+                `;
+                
+            } catch (error) {
+                console.error('发送失败:', error);
+                document.getElementById('result').innerHTML = `
+                    <h3>发送失败</h3>
+                    <p>错误: ${error.message}</p>
+                    <p>状态码: ${error.response?.status}</p>
+                    <p>详情: ${JSON.stringify(error.response?.data, null, 2)}</p>
+                `;
+            }
+        }
+
+        // 页面加载时自动登录
+        window.onload = login;
+    </script>
+</body>
+</html>

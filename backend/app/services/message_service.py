@@ -166,14 +166,26 @@ def get_message_history(db: Session, user_id: int, peer_id: int, page: int = 1, 
     total = query.count()
     messages = query.offset((page-1)*limit).limit(limit).all()
     
-    # 转换消息格式以符合API规范
+    # 转换消息格式以符合API规范，并解密加密的消息
     formatted_messages = []
     for msg in messages:
+        content = msg.content
+        # 如果消息是加密的，需要解密
+        if msg.encrypted and msg.method == 'E2E':
+            try:
+                # 确定解密时使用的用户ID（接收方ID）
+                decrypt_user_id = user_id if msg.to_id == user_id else user_id
+                sender_id = msg.from_id if msg.to_id == user_id else msg.to_id
+                content = decrypt_message_content(decrypt_user_id, sender_id, msg.content)
+            except Exception as e:
+                print(f"Warning: Failed to decrypt message {msg.id}: {e}")
+                content = "[解密失败的消息]"
+        
         formatted_msg = {
             "id": str(msg.id),
             "from": str(msg.from_id),
             "to": str(msg.to_id),
-            "content": msg.content,
+            "content": content,
             "messageType": msg.message_type or 'text',
             "timestamp": msg.timestamp.isoformat(),
             "encrypted": msg.encrypted,

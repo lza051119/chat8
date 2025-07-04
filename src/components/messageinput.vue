@@ -195,7 +195,8 @@ async function handleImageSelect(event) {
     formData.append('password', 'default_password'); // 可以后续改为用户设置的密码
     
     // 发送到隐写术API
-    const response = await fetch('/api/steganography/embed', {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+        const response = await fetch(`${API_BASE_URL}/steganography/embed`, {
       method: 'POST',
       body: formData
     });

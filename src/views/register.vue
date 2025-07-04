@@ -138,6 +138,7 @@ import { useRouter } from 'vue-router';
 import { hybridStore } from '../store/hybrid-store';
 import { authAPI } from '../api/hybrid-api';
 import { initializeUserEncryption } from '../utils/encryption-keys';
+import { storeUserKeys } from '../client_db/database';
 
 const router = useRouter();
 
@@ -181,6 +182,19 @@ async function handleRegister() {
 
     // 注册成功，设置用户信息（异步方法）
     await hybridStore.setUser(response.data.user, response.data.token);
+
+    // 存储用户密钥到客户端本地存储
+    try {
+      if (response.data.keys) {
+        await storeUserKeys(response.data.keys);
+        console.log('✅ 用户密钥已存储到客户端本地存储');
+      } else {
+        console.warn('⚠️  注册响应中未包含密钥信息');
+      }
+    } catch (keyStorageError) {
+      console.error('❌ 存储密钥到客户端失败:', keyStorageError);
+      // 密钥存储失败不阻止注册流程，但会记录错误
+    }
 
     // 初始化用户加密环境
     try {
