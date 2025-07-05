@@ -319,9 +319,9 @@ async function handleLogin() {
       }
     }
     
-    console.log('登录成功，跳转到聊天页面');
-    // 跳转到聊天页面
-    router.push('/chat');
+    console.log('登录成功，跳转到过渡页面');
+    // 跳转到过渡页面
+    router.push('/login-transition');
 
   } catch (error) {
     console.error('登录失败:', error);
