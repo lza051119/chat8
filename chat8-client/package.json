@@ -1,0 +1,54 @@
+{
+  "name": "chat8-client",
+  "version": "1.0.0",
+  "description": "Chat8 Client - Frontend application with end-to-end encryption",
+  "main": "frontend/src/main.js",
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "build": "npm run build-signal && cd frontend && npm run build",
+    "preview": "cd frontend && npm run preview",
+    "install-deps": "cd frontend && npm install",
+    "build-signal": "cd libsignal && cargo build --release",
+    "clean": "cd frontend && rm -rf dist node_modules && cd ../libsignal && cargo clean",
+    "lint": "cd frontend && npm run lint",
+    "format": "cd frontend && npm run format",
+    "test": "cd frontend && npm run test",
+    "start": "npm run build && npm run serve",
+    "serve": "cd frontend && npx serve dist -p 5173"
+  },
+  "keywords": [
+    "chat",
+    "messaging",
+    "vue",
+    "frontend",
+    "encryption",
+    "signal-protocol",
+    "end-to-end-encryption",
+    "websocket"
+  ],
+  "author": "Chat8 Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/chat8-client.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/chat8-client/issues"
+  },
+  "homepage": "https://github.com/your-username/chat8-client#readme",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "os": [
+    "linux",
+    "darwin",
+    "win32"
+  ],
+  "dependencies": {},
+  "devDependencies": {},
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ]
+}
