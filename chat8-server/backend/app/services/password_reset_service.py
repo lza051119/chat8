@@ -1,9 +1,8 @@
 from sqlalchemy.orm import Session
-from app.db.database import SessionLocal
-from app.db.models import User
-from app.core.security import hash_password
-from app.core.email_config import send_verification_email
-from app.services.verification_service import VerificationCodeService
+from ..db.models import User
+from ..core.security import hash_password
+from ..core.email_config import send_verification_email
+from .verification_service import VerificationCodeService
 from fastapi import HTTPException
 from typing import Dict, Any
 from datetime import datetime
@@ -12,9 +11,8 @@ class PasswordResetService:
     """密码重置服务"""
     
     @staticmethod
-    async def send_reset_code(email: str) -> Dict[str, Any]:
+    async def send_reset_code(db: Session, email: str) -> Dict[str, Any]:
         """发送密码重置验证码"""
-        db: Session = SessionLocal()
         try:
             # 检查用户是否存在
             user = db.query(User).filter(User.email == email).first()
@@ -51,13 +49,10 @@ class PasswordResetService:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"发送验证码失败: {str(e)}")
-        finally:
-            db.close()
     
     @staticmethod
-    def verify_reset_code(email: str, code: str) -> Dict[str, Any]:
+    def verify_reset_code(db: Session, email: str, code: str) -> Dict[str, Any]:
         """验证重置验证码"""
-        db: Session = SessionLocal()
         try:
             # 检查用户是否存在
             user = db.query(User).filter(User.email == email).first()
@@ -81,13 +76,10 @@ class PasswordResetService:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"验证失败: {str(e)}")
-        finally:
-            db.close()
-    
+
     @staticmethod
-    def reset_password(email: str, code: str, new_password: str) -> Dict[str, Any]:
+    def reset_password(db: Session, email: str, code: str, new_password: str) -> Dict[str, Any]:
         """重置密码"""
-        db: Session = SessionLocal()
         try:
             # 检查用户是否存在
             user = db.query(User).filter(User.email == email).first()
@@ -120,5 +112,3 @@ class PasswordResetService:
         except Exception as e:
             db.rollback()
             raise HTTPException(status_code=500, detail=f"密码重置失败: {str(e)}")
-        finally:
-            db.close()

@@ -1,17 +1,16 @@
-from sqlalchemy.orm import Session
-from app.db import models
+from sqlalchemy.orm import Session, joinedload
+from ..db import models
 from datetime import datetime
-from sqlalchemy import or_
+from sqlalchemy import or_, select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.repositories.friend_repository import friend_repository
+from ..repositories.friend_repository import friend_repository
 
 
-def get_friends(db: Session, user_id: int, page: int = 1, limit: int = 50):
+async def get_friends(db: AsyncSession, user_id: int, page: int = 1, limit: int = 50):
     # 使用关联查询获取好友信息
-    from sqlalchemy.orm import joinedload
-    query = db.query(models.Friend).options(joinedload(models.Friend.friend_user)).filter(models.Friend.user_id == user_id)
-    total = query.count()
-    friends = query.offset((page-1)*limit).limit(limit).all()
+    stmt = select(models.Friend).options(joinedload(models.Friend.friend_user)).filter(models.Friend.user_id == user_id)
+    result = await db.execute(stmt)
+    friends = result.scalars().all()
     
     # 构建好友列表
     friend_list = []
@@ -29,8 +28,10 @@ def get_friends(db: Session, user_id: int, page: int = 1, limit: int = 50):
             }
             friend_list.append(friend_data)
     
+    total = len(friend_list) # 注意：这里没有高效的方法来获取分页前的总数
+    
     return {
-        "items": friend_list,
+        "items": friend_list[(page-1)*limit : page*limit],
         "pagination": {
             "page": page,
             "limit": limit,
@@ -39,14 +40,16 @@ def get_friends(db: Session, user_id: int, page: int = 1, limit: int = 50):
         }
     }
 
-def add_friend(db: Session, user_id: int, friend_id: int):
+async def add_friend(db: AsyncSession, user_id: int, friend_id: int):
     # 检查friend_id对应的用户是否存在
-    friend_user = db.query(models.User).filter(models.User.id == friend_id).first()
+    result = await db.execute(select(models.User).filter(models.User.id == friend_id))
+    friend_user = result.scalars().first()
     if not friend_user:
         return None
     
     # 检查是否已是好友
-    exists = db.query(models.Friend).filter_by(user_id=user_id, friend_id=friend_id).first()
+    result = await db.execute(select(models.Friend).filter_by(user_id=user_id, friend_id=friend_id))
+    exists = result.scalars().first()
     if exists:
         return None
     
@@ -56,84 +59,85 @@ def add_friend(db: Session, user_id: int, friend_id: int):
         
     friend = models.Friend(user_id=user_id, friend_id=friend_id, created_at=datetime.utcnow())
     db.add(friend)
-    db.commit()
-    db.refresh(friend)
+    await db.commit()
+    await db.refresh(friend)
     return friend
 
-def remove_friend(db: Session, user_id: int, friend_id: int):
+async def remove_friend(db: AsyncSession, user_id: int, friend_id: int):
     # 删除双向好友关系
-    friend1 = db.query(models.Friend).filter_by(user_id=user_id, friend_id=friend_id).first()
-    friend2 = db.query(models.Friend).filter_by(user_id=friend_id, friend_id=user_id).first()
-    
     deleted = False
-    if friend1:
-        db.delete(friend1)
+    
+    # 删除 user -> friend
+    stmt1 = delete(models.Friend).where(models.Friend.user_id == user_id, models.Friend.friend_id == friend_id)
+    result1 = await db.execute(stmt1)
+    if result1.rowcount > 0:
         deleted = True
-    if friend2:
-        db.delete(friend2)
+        
+    # 删除 friend -> user
+    stmt2 = delete(models.Friend).where(models.Friend.user_id == friend_id, models.Friend.friend_id == user_id)
+    result2 = await db.execute(stmt2)
+    if result2.rowcount > 0:
         deleted = True
     
-    # 同时删除相关的好友申请记录（包括已处理的）
-    friend_requests = db.query(models.FriendRequest).filter(
+    # 同时删除相关的好友申请记录
+    stmt_req = delete(models.FriendRequest).where(
         or_(
             (models.FriendRequest.from_user_id == user_id) & (models.FriendRequest.to_user_id == friend_id),
             (models.FriendRequest.from_user_id == friend_id) & (models.FriendRequest.to_user_id == user_id)
         )
-    ).all()
-    
-    for request in friend_requests:
-        db.delete(request)
-        deleted = True
-    
+    )
+    await db.execute(stmt_req)
+
     if deleted:
-        db.commit()
+        await db.commit()
         return True
     return False
 
 # 好友申请相关函数
-def send_friend_request(db: Session, from_user_id: int, to_user_id: int, message: str = None):
+async def send_friend_request(db: AsyncSession, from_user_id: int, to_user_id: int, message: str = None):
     """发送好友申请"""
     # 检查目标用户是否存在
-    target_user = db.query(models.User).filter(models.User.id == to_user_id).first()
+    result = await db.execute(select(models.User).filter(models.User.id == to_user_id))
+    target_user = result.scalars().first()
     if not target_user:
-        return None
+        return {"success": False, "message": "用户不存在"}
     
     # 检查是否试图添加自己
     if from_user_id == to_user_id:
-        return None
+        return {"success": False, "message": "不能添加自己为好友"}
     
     # 检查是否已是好友（双向检查）
-    existing_friend = db.query(models.Friend).filter(
+    result = await db.execute(select(models.Friend).filter(
         or_(
             (models.Friend.user_id == from_user_id) & (models.Friend.friend_id == to_user_id),
             (models.Friend.user_id == to_user_id) & (models.Friend.friend_id == from_user_id)
         )
-    ).first()
+    ))
+    existing_friend = result.scalars().first()
     if existing_friend:
-        return None
+        return {"success": False, "message": "已经是好友"}
     
-    # 检查是否已有待处理的申请（只检查pending状态）
-    existing_request = db.query(models.FriendRequest).filter(
+    # 检查是否已有待处理的申请
+    result = await db.execute(select(models.FriendRequest).filter(
         or_(
             (models.FriendRequest.from_user_id == from_user_id) & (models.FriendRequest.to_user_id == to_user_id),
             (models.FriendRequest.from_user_id == to_user_id) & (models.FriendRequest.to_user_id == from_user_id)
         ),
         models.FriendRequest.status == 'pending'
-    ).first()
+    ))
+    existing_request = result.scalars().first()
     if existing_request:
-        return None
+        return {"success": False, "message": "已有待处理的好友申请"}
     
-    # 清理之前已处理的申请记录（可选，允许重新申请）
-    old_requests = db.query(models.FriendRequest).filter(
+    # 清理之前已处理的申请记录
+    stmt_del = delete(models.FriendRequest).where(
         or_(
             (models.FriendRequest.from_user_id == from_user_id) & (models.FriendRequest.to_user_id == to_user_id),
             (models.FriendRequest.from_user_id == to_user_id) & (models.FriendRequest.to_user_id == from_user_id)
         ),
         models.FriendRequest.status.in_(['accepted', 'rejected'])
-    ).all()
-    
-    for old_request in old_requests:
-        db.delete(old_request)
+    )
+    await db.execute(stmt_del)
     
     # 创建好友申请
     friend_request = models.FriendRequest(
@@ -143,29 +147,30 @@ def send_friend_request(db: Session, from_user_id: int, to_user_id: int, message
         status='pending'
     )
     db.add(friend_request)
-    db.commit()
-    db.refresh(friend_request)
-    return friend_request
+    await db.commit()
+    await db.refresh(friend_request)
+    return {"success": True, "message": "好友申请已发送", "data": {"request_id": friend_request.id}}
 
-def get_friend_requests(db: Session, user_id: int, request_type: str = 'received'):
+async def get_friend_requests(db: AsyncSession, user_id: int, request_type: str = 'received'):
     """获取好友申请列表"""
     if request_type == 'received':
-        # 获取收到的申请
-        requests = db.query(models.FriendRequest).filter(
+        stmt = select(models.FriendRequest).filter(
             models.FriendRequest.to_user_id == user_id,
             models.FriendRequest.status == 'pending'
-        ).all()
+        )
     elif request_type == 'sent':
-        # 获取发送的申请
-        requests = db.query(models.FriendRequest).filter(
+        stmt = select(models.FriendRequest).filter(
             models.FriendRequest.from_user_id == user_id,
             models.FriendRequest.status == 'pending'
-        ).all()
+        )
     else:
         return []
     
+    result = await db.execute(stmt.options(joinedload(models.FriendRequest.from_user)))
+    requests = result.scalars().all()
+    
     # 添加用户信息
-    result = []
+    result_list = []
     for req in requests:
         req_dict = {
             'id': req.id,
@@ -177,18 +182,19 @@ def get_friend_requests(db: Session, user_id: int, request_type: str = 'received
             'from_user_username': req.from_user.username,
             'from_user_avatar': req.from_user.avatar
         }
-        result.append(req_dict)
+        result_list.append(req_dict)
     
-    return result
+    return result_list
 
-def handle_friend_request(db: Session, request_id: int, user_id: int, action: str):
+async def handle_friend_request(db: AsyncSession, request_id: int, user_id: int, action: str):
     """处理好友申请"""
     # 获取申请记录
-    friend_request = db.query(models.FriendRequest).filter(
+    result = await db.execute(select(models.FriendRequest).filter(
         models.FriendRequest.id == request_id,
         models.FriendRequest.to_user_id == user_id,
         models.FriendRequest.status == 'pending'
-    ).first()
+    ))
+    friend_request = result.scalars().first()
     
     if not friend_request:
         return None
@@ -206,22 +212,29 @@ def handle_friend_request(db: Session, request_id: int, user_id: int, action: st
         db.add(friend1)
         db.add(friend2)
         friend_request.status = 'accepted'
-        
-
     elif action == 'reject':
-        # 拒绝申请
         friend_request.status = 'rejected'
     else:
         return None
     
     friend_request.updated_at = datetime.utcnow()
-    db.commit()
+    await db.commit()
     return friend_request
 
 class FriendService:
     async def get_friends(self, db: AsyncSession, user_id: int):
-        return await friend_repository.get_friends_by_user_id(db, user_id=user_id)
+        return await get_friends(db, user_id=user_id)
 
-    # ... (其他好友相关的业务逻辑，如添加、删除、处理请求等)
+    async def send_friend_request(self, db: AsyncSession, from_user_id: int, to_user_id: int, message: str = None):
+        return await send_friend_request(db, from_user_id, to_user_id, message)
+
+    async def remove_friend(self, db: AsyncSession, user_id: int, friend_id: int):
+        return await remove_friend(db, user_id, friend_id)
+
+    async def get_friend_requests(self, db: AsyncSession, user_id: int, request_type: str = 'received'):
+        return await get_friend_requests(db, user_id, request_type)
+        
+    async def handle_friend_request(self, db: AsyncSession, request_id: int, user_id: int, action: str):
+        return await handle_friend_request(db, request_id, user_id, action)
 
 friend_service = FriendService()

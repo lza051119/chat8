@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from app.db.database import get_db
-from app.core.security import get_current_user
-from app.services.user_states_update import get_user_states_service
+from sqlalchemy.ext.asyncio import AsyncSession
+from ...deps import get_db
+from ....core.security import get_current_user
+from ....services.user_states_update import get_user_presence_service
 from pydantic import BaseModel
 from typing import Optional
 import logging
@@ -28,7 +29,8 @@ class UserStatusResponse(BaseModel):
 @router.post("/user-status/heartbeat")
 async def send_heartbeat(
     heartbeat_data: HeartbeatRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """发送心跳信号
     
@@ -37,9 +39,9 @@ async def send_heartbeat(
     logger.info(f"[心跳API] 收到心跳请求，用户: {current_user.id}, 数据: {heartbeat_data}")
     try:
         user_id = int(current_user.id)
-        user_states_service = get_user_states_service()
+        user_states_service = get_user_presence_service()
         
-        result = await user_states_service.update_user_heartbeat(user_id)
+        result = await user_states_service.update_user_heartbeat(db, user_id)
         
         if result["success"]:
             return JSONResponse(
@@ -66,7 +68,8 @@ async def send_heartbeat(
 @router.get("/user-status/{user_id}")
 async def get_user_status(
     user_id: int,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """获取指定用户的状态信息
     
@@ -77,8 +80,8 @@ async def get_user_status(
         用户状态信息
     """
     try:
-        user_states_service = get_user_states_service()
-        result = await user_states_service.get_user_status(user_id)
+        user_states_service = get_user_presence_service()
+        result = await user_states_service.get_user_status(db, user_id)
         
         if result["success"]:
             return JSONResponse(
@@ -103,13 +106,14 @@ async def get_user_status(
 
 @router.get("/user-status/me")
 async def get_my_status(
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """获取当前用户的状态信息"""
     try:
         user_id = current_user["user_id"]
-        user_states_service = get_user_states_service()
-        result = await user_states_service.get_user_status(user_id)
+        user_states_service = get_user_presence_service()
+        result = await user_states_service.get_user_status(db, user_id)
         
         if result["success"]:
             return JSONResponse(
@@ -141,7 +145,7 @@ async def get_status_stats(
     仅供管理员或调试使用
     """
     try:
-        user_states_service = get_user_states_service()
+        user_states_service = get_user_presence_service()
         
         stats = {
             "online_users_count": user_states_service.get_online_users_count(),
@@ -165,7 +169,8 @@ async def get_status_stats(
 @router.post("/user-status/force-logout/{user_id}")
 async def force_user_logout(
     user_id: int,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """强制用户离线
     
@@ -179,8 +184,8 @@ async def force_user_logout(
         # if not current_user.get("is_admin"):
         #     raise HTTPException(status_code=403, detail="权限不足")
         
-        user_states_service = get_user_states_service()
-        result = await user_states_service.user_logout(user_id)
+        user_states_service = get_user_presence_service()
+        result = await user_states_service.user_logout(db, user_id)
         
         if result["success"]:
             return JSONResponse(
@@ -206,7 +211,8 @@ async def force_user_logout(
 
 @router.post("/user-status/check-timeouts")
 async def manual_check_timeouts(
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """手动触发心跳超时检查
     
@@ -217,8 +223,8 @@ async def manual_check_timeouts(
         # if not current_user.get("is_admin"):
         #     raise HTTPException(status_code=403, detail="权限不足")
         
-        user_states_service = get_user_states_service()
-        result = await user_states_service.check_heartbeat_timeouts()
+        user_states_service = get_user_presence_service()
+        result = await user_states_service.check_heartbeat_timeouts(db)
         
         if result["success"]:
             return JSONResponse(

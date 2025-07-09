@@ -1,83 +1,81 @@
 from fastapi import FastAPI, WebSocket, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
 import logging
 from dotenv import load_dotenv
 import os
-from app.db.models import Base
-from app.db.database import engine
 
 # 加载环境变量
 load_dotenv()
-from app.websocket.manager import ConnectionManager, manager
+
+from .db.models import Base
+from .db.database import engine, get_db
+from .websocket.manager import ConnectionManager, manager
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1.endpoints import friends, messages, auth, signaling, avatar, security, upload, user_status, user_profile
-from app.websocket.events import websocket_endpoint
+from .api.v1.endpoints import friends, messages, auth, signaling, avatar, security, upload, user_status, user_profile
+from .websocket.events import websocket_endpoint
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
 from fastapi.exception_handlers import RequestValidationError
 from fastapi.exceptions import HTTPException
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
-from app.core.security import decode_access_token
-from app.services.user_states_update import initialize_user_states_service, cleanup_user_states_service, initialize_user_presence_service, cleanup_user_presence_service
-from app.db.database import SessionLocal
-from app.db.models import User
-from app.core.config import UPLOADS_DIR
+from .core.security import decode_access_token
+from .services.user_states_update import initialize_user_presence_service, cleanup_user_presence_service
+from .db.models import User
+from .core.config import UPLOADS_DIR
+from sqlalchemy import select, update
 
 # 创建 ConnectionManager 单例
-connection_manager = ConnectionManager()
-
-
+# connection_manager = ConnectionManager() # manager已经从websocket.manager导入，无需重复创建
 
 # 定义一个依赖项，用于获取 ConnectionManager 实例
 def get_connection_manager():
-    return connection_manager
+    return manager
 
-async def reset_all_users_offline():
+async def reset_all_users_offline(db: AsyncSession):
     """重置所有用户状态为离线
     
     在服务器启动时调用，确保数据库中的用户状态正确
     """
     try:
-        db = SessionLocal()
-        # 将所有用户状态设置为离线
-        online_users = db.query(User).filter(User.status == 'online').all()
-        count = 0
-        for user in online_users:
-            user.status = 'offline'
-            count += 1
-        
-        db.commit()
-        db.close()
-        
-        print(f"[应用启动] 已重置 {count} 个用户状态为离线")
+        stmt = update(User).where(User.status == 'online').values(status='offline')
+        result = await db.execute(stmt)
+        await db.commit()
+        print(f"[应用启动] 已重置 {result.rowcount} 个用户状态为离线")
     except Exception as e:
         print(f"[应用启动] 重置用户状态失败: {str(e)}")
-        if 'db' in locals():
-            db.rollback()
-            db.close()
+        await db.rollback()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("[应用启动] 服务器已启动")
     
-    # 初始化用户状态服务
+    # 初始化数据库和用户状态服务
     try:
-        user_states_service = initialize_user_states_service(connection_manager)
+        async with engine.begin() as conn:
+            # await conn.run_sync(Base.metadata.drop_all) # 可选：取消注释以在每次启动时清空数据库
+            await conn.run_sync(Base.metadata.create_all)
+
+        async for db in get_db():
+            try:
+                # 重置所有用户状态为离线（服务器重启时）
+                await reset_all_users_offline(db)
+            finally:
+                await db.close()
+
+        user_states_service = initialize_user_presence_service(manager)
         await user_states_service.start_heartbeat_monitor()
-        
-        # 重置所有用户状态为离线（服务器重启时）
-        await reset_all_users_offline()
         
         print("[应用启动] 用户状态服务初始化成功")
     except Exception as e:
-        print(f"[应用启动] 用户状态服务初始化失败: {str(e)}")
+        print(f"[应用启动] 数据库或用户状态服务初始化失败: {str(e)}")
     
     yield
     
     # 清理用户状态服务
     try:
-        await cleanup_user_states_service()
+        await cleanup_user_presence_service()
         print("[应用关闭] 用户状态服务清理完成")
     except Exception as e:
         print(f"[应用关闭] 用户状态服务清理失败: {str(e)}")
@@ -129,7 +127,12 @@ def ping():
     return {"msg": "pong"}
 
 @app.websocket("/ws/{user_id}")
-async def websocket_route(websocket: WebSocket, user_id: int, manager: ConnectionManager = Depends(get_connection_manager)):
+async def websocket_route(
+    websocket: WebSocket, 
+    user_id: int, 
+    manager: ConnectionManager = Depends(get_connection_manager),
+    db: AsyncSession = Depends(get_db)
+):
     # 从query参数获取token进行验证
     token = websocket.query_params.get("token")
     if not token:
@@ -142,9 +145,10 @@ async def websocket_route(websocket: WebSocket, user_id: int, manager: Connectio
         return
     
     # 验证用户ID是否匹配
-    db = SessionLocal()
     try:
-        user = db.query(User).filter(User.username == username, User.id == user_id).first()
+        stmt = select(User).where(User.username == username, User.id == user_id)
+        result = await db.execute(stmt)
+        user = result.scalars().first()
         if not user:
             await websocket.close(code=1008)
             return
@@ -152,10 +156,9 @@ async def websocket_route(websocket: WebSocket, user_id: int, manager: Connectio
         print(f"[WebSocket] 用户验证失败: {str(e)}")
         await websocket.close(code=1008)
         return
-    finally:
-        db.close()
     
-    await websocket_endpoint(websocket, user_id, manager)
+    # 将db会话传递给websocket_endpoint
+    await websocket_endpoint(websocket, user_id, manager, db)
 
 ERROR_CODE_MAP = {
     401: "UNAUTHORIZED",
@@ -206,17 +209,15 @@ async def global_exception_handler(request: Request, exc: Exception):
         }
     )
 
-@app.on_event("startup")
-async def startup_event():
-    async with engine.begin() as conn:
-        # await conn.run_sync(Base.metadata.drop_all) # 可选：取消注释以在每次启动时清空数据库
-        await conn.run_sync(Base.metadata.create_all)
-    initialize_user_presence_service(manager)
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await cleanup_user_presence_service()
+# 移除旧的startup/shutdown事件，因为lifespan是首选方式
+# @app.on_event("startup")
+# async def startup_event():
+#     ...
+#
+# @app.on_event("shutdown")
+# async def shutdown_event():
+#     ...
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -1,9 +1,9 @@
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from fastapi.responses import FileResponse
-from app.core.security import get_current_user
-from app.schemas.user import UserOut, ResponseModel
-from app.db.database import SessionLocal
-from app.db.models import User as UserModel
+from ....core.security import get_current_user
+from ....schemas.user import UserOut, ResponseModel
+from ....db.database import SessionLocal
+from ....db.models import User as UserModel
 import os
 import uuid
 from pathlib import Path

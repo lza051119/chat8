@@ -1,44 +1,35 @@
-from fastapi import WebSocket
-from fastapi.websockets import WebSocketDisconnect
+from fastapi import WebSocket, WebSocketDisconnect, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 from .manager import ConnectionManager
-from app.db.database import SessionLocal
-from app.db import models
-from app.core.security import decode_access_token
-from datetime import datetime
+from ..services.message_db_service import MessageDBService
+from ..core.security import decode_access_token
+from ..db.database import get_db, SessionLocal
 import json
-import asyncio
-import time
-from sqlalchemy.orm import Session
-from app.services.user_states_update import get_user_states_service
+from datetime import datetime
 
+# 导入正确的服务获取函数
+from ..services.user_states_update import get_user_presence_service, UserPresenceService
+from ..services import message_service
 
-
-async def websocket_endpoint(websocket: WebSocket, user_id: int, manager: ConnectionManager):
-    await websocket.accept()
-    manager.connect(user_id, websocket)
-    
-    # 用户登录状态处理
+async def websocket_endpoint(websocket: WebSocket, user_id: int, manager: ConnectionManager, db: AsyncSession = Depends(get_db)):
+    user_states_service = get_user_presence_service()
     try:
-        user_states_service = get_user_states_service()
-        login_result = await user_states_service.user_login(user_id)
-        if login_result["success"]:
-            print(f"[WebSocket] 用户 {user_id} 登录状态处理成功")
-        else:
-            print(f"[WebSocket] 用户 {user_id} 登录状态处理失败: {login_result['message']}")
-    except Exception as e:
-        print(f"[WebSocket] 用户 {user_id} 登录状态处理异常: {str(e)}")
-    
-    # 发送离线消息
-    await send_offline_messages(user_id, websocket)
-    
-    try:
+        await manager.connect(user_id, websocket)
+        
+        # 用户上线处理
+        await user_states_service.user_login(db, user_id)
+        
+        # 广播用户上线
+        await manager.broadcast_user_status(user_id, "online")
+
+        # 处理消息
         while True:
             data = await websocket.receive_text()
             message = json.loads(data)
             
             # 根据消息类型处理
             if message.get('type') == 'private_message':
-                await handle_private_message(user_id, message, manager)
+                await handle_private_message(db, user_id, message, manager)
             elif message.get('type') == 'typing_start':
                 await handle_typing_status(message, user_id, manager, True)
             elif message.get('type') == 'typing_stop':
@@ -54,88 +45,80 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, manager: Connec
             elif message.get('type') == 'heartbeat':
                 # 更新用户心跳时间
                 try:
-                    user_states_service = get_user_states_service()
-                    await user_states_service.update_user_heartbeat(user_id)
+                    await user_states_service.update_user_heartbeat(db, user_id)
                 except Exception as e:
                     print(f"[WebSocket] 更新用户 {user_id} 心跳失败: {str(e)}")
                 
                 await websocket.send_text(json.dumps({
                     'type': 'heartbeat_response',
-                    'timestamp': int(time.time() * 1000)
+                    'timestamp': int(datetime.now().timestamp() * 1000)
                 }))
             elif message.get('type') == 'heartbeat_response':
                 # 心跳回复处理
                 try:
-                    user_states_service = get_user_states_service()
-                    await user_states_service.update_user_heartbeat(user_id)
+                    await user_states_service.update_user_heartbeat(db, user_id)
                 except Exception as e:
                     print(f"[WebSocket] 更新用户 {user_id} 心跳失败: {str(e)}")
                 
     except WebSocketDisconnect:
+        # 用户下线处理
+        # 这里需要一个新的DB会话，因为原始的可能已关闭
+        async for session in get_db():
+            try:
+                await user_states_service.user_logout(session, user_id)
+                # 广播用户下线
+                await manager.broadcast_user_status(user_id, "offline")
+            finally:
+                await session.close()
         manager.disconnect(user_id)
-        
-        # 用户离线状态处理
-        try:
-            user_states_service = get_user_states_service()
-            logout_result = await user_states_service.user_logout(user_id)
-            if logout_result["success"]:
-                print(f"[WebSocket] 用户 {user_id} 离线状态处理成功")
-            else:
-                print(f"[WebSocket] 用户 {user_id} 离线状态处理失败: {logout_result['message']}")
-        except Exception as e:
-            print(f"[WebSocket] 用户 {user_id} 离线状态处理异常: {str(e)}")
+    finally:
+        manager.disconnect(user_id)
 
-async def handle_private_message(from_id, msg, manager: ConnectionManager):
+
+async def handle_private_message(db: AsyncSession, from_id, msg, manager: ConnectionManager):
     to_id = msg.get("to_id")
     encrypted_content = msg.get("encrypted_content")
     message_type = msg.get("message_type", "text")
     
     # 检查接收方是否在线
-    recipient_online = manager.get(to_id) is not None
+    recipient_online = manager.is_user_connected(to_id)
     
-    # 保存消息到数据库（只有接收方不在线时才保存）
-    db = SessionLocal()
-    try:
-        from app.services import message_service
-        saved_msg = message_service.send_message(
-            db,
-            from_id=from_id,
-            to_id=to_id,
-            encrypted_content=encrypted_content,
-            message_type=message_type,
-            recipient_online=recipient_online
-        )
+    # 保存消息到数据库
+    saved_msg = await message_service.send_message(
+        db,
+        from_id=from_id,
+        to_id=to_id,
+        encrypted_content=encrypted_content,
+        message_type=message_type,
+        recipient_online=recipient_online
+    )
+    
+    # 构建推送消息数据 - 直接转发不透明的加密数据
+    message_data = {
+        "id": saved_msg.id if saved_msg else f"{from_id}_{to_id}_{int(datetime.now().timestamp())}",
+        "from": from_id,
+        "to": to_id,
+        "encrypted_content": encrypted_content,
+        "messageType": message_type,
+        "timestamp": saved_msg.timestamp.isoformat() if saved_msg else datetime.utcnow().isoformat(),
+        "delivered": getattr(saved_msg, 'delivered', True)
+    }
+    
+    # 尝试推送给在线用户
+    ws = manager.get_connection(to_id)
+    if ws:
+        # 推送消息给用户
+        await ws.send_text(json.dumps({
+            "type": "message",
+            "data": message_data
+        }))
         
-        # 构建推送消息数据 - 直接转发不透明的加密数据
-        message_data = {
-            "id": saved_msg.id if saved_msg else f"{from_id}_{to_id}_{int(datetime.now().timestamp())}",
-            "from": from_id,
-            "to": to_id,
-            "encrypted_content": encrypted_content,
-            "messageType": message_type,
-            "timestamp": saved_msg.timestamp.isoformat() if saved_msg else datetime.utcnow().isoformat(),
-            "delivered": saved_msg.delivered if saved_msg else True
-        }
-        
-
-        
-        # 尝试推送给在线用户
-        ws = manager.get(to_id)
-        if ws:
-            # 推送消息给用户
-            await ws.send_text(json.dumps({
-                "type": "message",
-                "data": message_data
-            }))
-            
-            # 消息发送成功，如果之前保存到了服务器数据库，现在删除它
-            if saved_msg:
-                message_service.delete_server_message(db, saved_msg.id)
-        else:
-            # 用户不在线，消息已暂存到服务器数据库
-            pass
-    finally:
-        db.close()
+        # 消息发送成功，如果之前保存到了服务器数据库，现在删除它
+        if saved_msg:
+            await message_service.delete_server_message(db, saved_msg.id)
+    else:
+        # 用户不在线，消息已暂存到服务器数据库
+        pass
 
 
 
@@ -143,13 +126,11 @@ async def handle_private_message(from_id, msg, manager: ConnectionManager):
 
 # update_user_status函数已删除 - 用户状态只在登录时设置为online
 
-async def send_offline_messages(user_id: int, websocket: WebSocket):
+async def send_offline_messages(db: AsyncSession, user_id: int, websocket: WebSocket):
     """发送用户离线期间收到的消息"""
-    db = SessionLocal()
     try:
-        from app.services import message_service
         # 获取用户的离线消息
-        offline_messages = message_service.get_offline_messages(db, user_id)
+        offline_messages = await message_service.get_offline_messages(db, user_id)
         
         if offline_messages:
             sent_message_ids = []
@@ -180,16 +161,14 @@ async def send_offline_messages(user_id: int, websocket: WebSocket):
             
             # 删除已成功发送的离线消息
             for msg_id in sent_message_ids:
-                message_service.delete_server_message(db, msg_id)
+                await message_service.delete_server_message(db, msg_id)
     except Exception as e:
         # 发送离线消息失败
         pass
-    finally:
-        db.close()
 
 async def handle_typing(from_id, msg, is_start, manager: ConnectionManager):
     to_id = msg.get("to_id")
-    ws = manager.get(to_id)
+    ws = manager.get_connection(to_id)
     if ws:
         await ws.send_text(json.dumps({
             "type": "typing",
@@ -202,7 +181,7 @@ async def handle_typing(from_id, msg, is_start, manager: ConnectionManager):
 
 async def handle_screenshot_alert(from_id, msg, manager: ConnectionManager):
     to_id = msg.get("to_id")
-    ws = manager.get(to_id)
+    ws = manager.get_connection(to_id)
     if ws:
         await ws.send_text(json.dumps({
             "type": "screenshot_alert",
@@ -214,7 +193,7 @@ async def handle_screenshot_alert(from_id, msg, manager: ConnectionManager):
 
 async def handle_webrtc_signaling(msg, from_id, manager: ConnectionManager):
     to_id = msg.get("to_id")
-    ws = manager.get(to_id)
+    ws = manager.get_connection(to_id)
     if ws:
         # 构建转发给目标客户端的消息，使用前端期望的格式
         forward_msg = {
@@ -231,7 +210,7 @@ async def handle_webrtc_signaling(msg, from_id, manager: ConnectionManager):
 async def handle_voice_call_signaling(msg, from_id, manager: ConnectionManager):
     """处理语音通话信令消息"""
     to_id = msg.get("to_id")
-    ws = manager.get(to_id)
+    ws = manager.get_connection(to_id)
     if ws:
         # 构建转发给目标客户端的消息，保持与前端期望的格式一致
         forward_msg = {
@@ -266,7 +245,7 @@ async def handle_voice_call_signaling(msg, from_id, manager: ConnectionManager):
 async def handle_video_call_signaling(msg, from_id, manager: ConnectionManager):
     """处理视频通话信令消息"""
     to_id = msg.get("to_id")
-    ws = manager.get(to_id)
+    ws = manager.get_connection(to_id)
     if ws:
         # 构建转发给目标客户端的消息，保持与前端期望的格式一致
         forward_msg = {

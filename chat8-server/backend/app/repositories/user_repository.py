@@ -28,10 +28,14 @@ class UserRepository(BaseRepository[User]):
         """
         创建一个新用户，并对密码进行哈希处理。
         """
-        create_data = obj_in.model_dump()
-        create_data["password_hash"] = hash_password(obj_in.password)
-        del create_data["password"]
-        
-        return await super().create(db, obj_in=create_data)
+        db_obj = User(
+            username=obj_in.username,
+            email=obj_in.email,
+            password_hash=hash_password(obj_in.password)
+        )
+        db.add(db_obj)
+        await db.commit()
+        await db.refresh(db_obj)
+        return db_obj
 
 user_repository = UserRepository(User) 

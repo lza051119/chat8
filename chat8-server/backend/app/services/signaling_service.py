@@ -1,10 +1,9 @@
-from app.db.database import SessionLocal
-from app.db.models import SignalingMessage
+from sqlalchemy.orm import Session
+from ..db.models import SignalingMessage
 from datetime import datetime
 import json
 
-def save_signaling_message(from_user_id: int, to_user_id: int, msg_type: str, data: dict):
-    db = SessionLocal()
+def save_signaling_message(db: Session, from_user_id: int, to_user_id: int, msg_type: str, data: dict):
     msg = SignalingMessage(
         from_user_id=from_user_id,
         to_user_id=to_user_id,
@@ -15,11 +14,9 @@ def save_signaling_message(from_user_id: int, to_user_id: int, msg_type: str, da
     )
     db.add(msg)
     db.commit()
-    db.close()
     return True
 
-def get_pending_signaling(user_id: int):
-    db = SessionLocal()
+def get_pending_signaling(db: Session, user_id: int):
     msgs = db.query(SignalingMessage).filter_by(to_user_id=user_id, is_handled=False).all()
     result = []
     for m in msgs:
@@ -32,5 +29,4 @@ def get_pending_signaling(user_id: int):
         })
         m.is_handled = True
     db.commit()
-    db.close()
     return result

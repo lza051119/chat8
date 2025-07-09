@@ -1,19 +1,22 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.schemas.user import UserProfileCreate, UserProfileUpdate, UserProfileOut, UserProfileWithUserInfo, ResponseModel, UserOut
-from app.services.user_profile_service import UserProfileService
-from app.core.security import get_current_user
+from sqlalchemy.orm import Session
+from ...deps import get_db
+from ....schemas.user import UserProfileCreate, UserProfileUpdate, UserProfileOut, UserProfileWithUserInfo, ResponseModel, UserOut
+from ....services.user_profile_service import UserProfileService
+from ....core.security import get_current_user
 from typing import Optional
 
 router = APIRouter()
 
 @router.get("/profile", response_model=UserProfileOut)
 async def get_user_profile(
-    current_user: UserOut = Depends(get_current_user)
+    current_user: UserOut = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """获取当前用户的个人信息"""
     try:
         user_id = int(current_user.id)
-        profile = UserProfileService.get_user_profile(user_id)
+        profile = UserProfileService.get_user_profile(db, user_id)
         
         if not profile:
             raise HTTPException(
@@ -33,11 +36,12 @@ async def get_user_profile(
 @router.get("/profile/{user_id}", response_model=UserProfileWithUserInfo)
 async def get_user_profile_by_id(
     user_id: int,
-    current_user: UserOut = Depends(get_current_user)
+    current_user: UserOut = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """获取指定用户的个人信息"""
     try:
-        profile = UserProfileService.get_user_profile(user_id)
+        profile = UserProfileService.get_user_profile(db, user_id)
         
         if not profile:
             raise HTTPException(
@@ -57,12 +61,13 @@ async def get_user_profile_by_id(
 @router.post("/profile", response_model=ResponseModel)
 async def create_user_profile(
     profile_data: UserProfileCreate,
-    current_user: UserOut = Depends(get_current_user)
+    current_user: UserOut = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """创建用户个人信息"""
     try:
         user_id = int(current_user.id)
-        profile = UserProfileService.create_user_profile(user_id, profile_data)
+        profile = UserProfileService.create_user_profile(db, user_id, profile_data)
         
         return ResponseModel(
             success=True,
@@ -83,12 +88,13 @@ async def create_user_profile(
 @router.put("/profile", response_model=ResponseModel)
 async def update_user_profile(
     profile_data: UserProfileUpdate,
-    current_user: UserOut = Depends(get_current_user)
+    current_user: UserOut = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """更新用户个人信息"""
     try:
         user_id = int(current_user.id)
-        profile = UserProfileService.update_user_profile(user_id, profile_data)
+        profile = UserProfileService.update_user_profile(db, user_id, profile_data)
         
         return ResponseModel(
             success=True,
@@ -103,12 +109,13 @@ async def update_user_profile(
 
 @router.delete("/profile", response_model=ResponseModel)
 async def delete_user_profile(
-    current_user: UserOut = Depends(get_current_user)
+    current_user: UserOut = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """删除用户个人信息"""
     try:
         user_id = int(current_user.id)
-        success = UserProfileService.delete_user_profile(user_id)
+        success = UserProfileService.delete_user_profile(db, user_id)
         
         if not success:
             raise HTTPException(

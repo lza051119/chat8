@@ -41,7 +41,16 @@ api.interceptors.response.use((response) => {
 // 认证相关API
 export const authAPI = {
   // 用户登录
-  login: (credentials) => api.post('/v1/auth/login', credentials),
+  login: (credentials) => {
+    const params = new URLSearchParams();
+    params.append('username', credentials.username);
+    params.append('password', credentials.password);
+    return api.post('/v1/auth/login', params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    });
+  },
   
   // 用户注册
   register: (userData) => api.post('/v1/auth/register', userData),
