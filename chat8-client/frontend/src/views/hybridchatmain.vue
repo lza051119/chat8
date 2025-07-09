@@ -267,7 +267,7 @@ const serverEfficiency = computed(() => {
 // 生命周期
 onMounted(async () => {
   // 首先从本地存储加载用户信息
-  hybridStore.loadUserFromStorage();
+  const loadResult = await hybridStore.loadUserFromStorage();
   
   // 等待下一个 tick 确保响应式状态已更新
   await nextTick();
@@ -302,7 +302,7 @@ onMounted(async () => {
       // 等待一段时间后重试
       await new Promise(resolve => setTimeout(resolve, 200));
       // 重新加载用户信息
-      hybridStore.loadUserFromStorage();
+      await hybridStore.loadUserFromStorage();
       await nextTick();
     } else {
       // 最后一次重试失败，跳转到登录页面
@@ -489,11 +489,13 @@ function showFriendProfileInfo(userId) {
 
 // 预加载有阅后即焚消息的对话
 async function preloadBurnAfterMessages() {
+  if (!hybridStore.getHybridMessaging()) {
+    console.warn('⚠️ 消息服务未就绪，无法预加载阅后即焚消息。');
+    return;
+  }
+  
   try {
-    console.log('🔍 开始预加载阅后即焚消息...');
-    const { getMessagesWithFriend } = await import('../client_db/database.js');
-    const contacts = hybridStore.getContacts();
-    
+    const contacts = hybridStore.contacts;
     let totalLoadedConversations = 0;
     let totalBurnAfterMessages = 0;
     
@@ -504,13 +506,13 @@ async function preloadBurnAfterMessages() {
         
         // 检查是否有未过期的阅后即焚消息
         const currentTime = Math.floor(Date.now() / 1000);
-        const burnAfterMessages = result.messages.filter(msg => 
+        const burnAfterMessages = result.filter(msg => 
           msg.destroy_after && msg.destroy_after > currentTime
         );
         
         if (burnAfterMessages.length > 0) {
           // 如果有阅后即焚消息，加载到store中
-          hybridStore.setMessages(contact.id, result.messages);
+          hybridStore.setMessages(contact.id, result);
           totalLoadedConversations++;
           totalBurnAfterMessages += burnAfterMessages.length;
           console.log(`📥 预加载联系人 ${contact.id} 的对话，包含 ${burnAfterMessages.length} 条阅后即焚消息`);
@@ -532,48 +534,34 @@ async function preloadBurnAfterMessages() {
   }
 }
 
+// 初始化消息系统
 async function initializeMessaging() {
-  try {
-    // 首先重新初始化数据库（用户登录后才有token）
-    console.log('🔄 用户登录后重新初始化本地数据库...');
-    try {
-      const { initDatabase } = await import('../client_db/database.js');
-      await initDatabase();
-      console.log('✅ 本地数据库重新初始化成功');
-    } catch (dbError) {
-      console.warn('⚠️ 本地数据库初始化失败，但继续启动消息系统:', dbError);
-    }
-    
-    // 使用hybrid-store的初始化方法
-    const success = await hybridStore.initializeHybridMessaging();
-    
-    if (success) {
-      messaging.value = hybridStore.getHybridMessaging();
-      
-      console.log('[状态同步] 混合消息系统初始化成功，WebSocket已自动发送在线状态');
-      
-      // 开始定期更新在线状态
-      startStatusHeartbeat();
-      
-      // 加载联系人在线状态
-      await updateContactsOnlineStatus();
-      
-      // 预加载所有有阅后即焚消息的对话，确保刷新后功能正常
-      await preloadBurnAfterMessages();
+  if (hybridStore.getHybridMessaging()) {
+    console.log('🔄 消息系统已初始化，跳过。');
+    return;
+  }
+  
+  if (!user.value?.id) {
+    console.warn('⚠️ 用户信息尚未加载，无法初始化消息系统。');
+    return;
+  }
 
-      // 设置来电处理
-      messaging.value.onVoiceCallReceived = handleIncomingCall;
-      messaging.value.onVideoCallReceived = handleIncomingVideoCall;
-      messaging.value.onVideoCallStatusChanged = handleVideoCallStatusChange;
-      console.log('[来电处理] onVoiceCallReceived、onVideoCallReceived 和 onVideoCallStatusChanged 回调已设置');
-      
-      console.log('混合消息系统初始化完成，在线状态已同步给好友');
-    } else {
-      throw new Error('HybridMessaging初始化失败');
-    }
+  try {
+    console.log('🚀 开始初始化消息系统...');
+    const hybridMessaging = new HybridMessaging();
+    hybridStore.setHybridMessaging(hybridMessaging);
+    
+    // 初始化服务
+    await hybridMessaging.initialize(user.value.id, hybridStore.token);
+    
+    console.log('✅ 消息系统初始化成功!');
+
+    // 预加载阅后即焚消息
+    await preloadBurnAfterMessages();
+    
   } catch (error) {
-    console.error('初始化消息系统失败:', error);
-    showNotification('初始化失败', 'error', '❌');
+    console.error('❌ 初始化消息系统失败:', error);
+    // 这里可以添加更详细的用户反馈，例如显示一个错误通知
   }
 }
 
@@ -643,8 +631,6 @@ async function updateContactsOnlineStatus() {
   }
 }
 
-
-
 function showNotification(message, type, icon) {
   connectionNotification.value = {
     message,
@@ -683,18 +669,16 @@ async function handleFriendRequestHandled(data) {
   loadPendingRequestsCount();
   
   // 如果同意了申请，刷新联系人列表
-  if (data.action === 'accept') {
-    if (contactList.value && contactList.value.refresh) {
-      contactList.value.refresh();
-    } else {
-      // 直接重新加载联系人数据
-      try {
-        const response = await hybridApi.getContacts();
-        const contactsData = response.data.data.items || [];
-        hybridStore.setContacts(contactsData);
-      } catch (error) {
-        console.error('刷新联系人列表失败:', error);
-      }
+  if (contactList.value && contactList.value.refresh) {
+    contactList.value.refresh();
+  } else {
+    // 直接重新加载联系人数据
+    try {
+      const response = await hybridApi.getContacts();
+      const contactsData = response.data.data.items || [];
+      hybridStore.setContacts(contactsData);
+    } catch (error) {
+      console.error('刷新联系人列表失败:', error);
     }
   }
   
@@ -752,28 +736,32 @@ async function logout() {
       console.warn('后端退出API调用失败:', apiError);
     }
     
-    // 7. 清空store状态
+    // 7. 清理单点登录资源
+    try {
+      const { cleanupSingleLogin } = await import('../utils/single-login');
+      cleanupSingleLogin();
+      console.log('[单点登录] 资源已清理');
+    } catch (error) {
+      console.warn('[单点登录] 资源清理失败:', error);
+    }
+    
+    // 8. 清空store状态
     hybridStore.logout();
     
     console.log('退出登录完成，跳转到登录页');
     
-    // 8. 强制跳转到登录页
+    // 9. 强制跳转到登录页
     await router.replace('/login');
     
-    // 9. 刷新页面确保完全清理
+    // 10. 刷新页面确保完全清理
     setTimeout(() => {
       window.location.reload();
     }, 100);
-    
   } catch (error) {
-    console.error('退出登录失败:', error);
-    // 即使出错也要清理状态并跳转
-    hybridStore.cleanupHybridMessaging();
+    console.error('退出登录过程中发生错误:', error);
+    // 强制清理并跳转
     hybridStore.logout();
-    router.replace('/login');
-    setTimeout(() => {
-      window.location.reload();
-    }, 100);
+    window.location.href = '/login';
   }
 }
 </script>

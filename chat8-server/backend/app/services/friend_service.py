@@ -2,6 +2,8 @@ from sqlalchemy.orm import Session
 from app.db import models
 from datetime import datetime
 from sqlalchemy import or_
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.repositories.friend_repository import friend_repository
 
 
 def get_friends(db: Session, user_id: int, page: int = 1, limit: int = 50):
@@ -215,3 +217,11 @@ def handle_friend_request(db: Session, request_id: int, user_id: int, action: st
     friend_request.updated_at = datetime.utcnow()
     db.commit()
     return friend_request
+
+class FriendService:
+    async def get_friends(self, db: AsyncSession, user_id: int):
+        return await friend_repository.get_friends_by_user_id(db, user_id=user_id)
+
+    # ... (其他好友相关的业务逻辑，如添加、删除、处理请求等)
+
+friend_service = FriendService()

@@ -214,6 +214,7 @@ import { authAPI } from '../api/hybrid-api';
 import api from '../api/hybrid-api';
 import { initializeUserEncryption, hasCompleteEncryptionKeys, validateUserKeys } from '../utils/encryption-keys';
 import { initDatabase } from '../client_db/database';
+import { checkUserLoggedInElsewhere, forceLogoutOtherSessions } from '../utils/single-login';
 
 const router = useRouter();
 
@@ -262,6 +263,22 @@ async function handleLogin() {
       username: loginForm.username,
       password: loginForm.password
     });
+
+    // 获取用户ID
+    const userId = response.data.data.user.id;
+    
+    // 检查用户是否已在其他页面登录
+    const isLoggedInElsewhere = await checkUserLoggedInElsewhere(userId);
+    
+    if (isLoggedInElsewhere) {
+      console.log('用户已在其他页面登录，强制登出其他会话');
+      // 显示提示信息
+      successMessage.value = '检测到您已在其他页面登录，正在强制登出其他会话...';
+      // 强制登出其他会话
+      forceLogoutOtherSessions(userId);
+      // 等待一小段时间，确保其他会话已登出
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
 
     // 设置用户信息到store（现在是异步方法）
     const setUserSuccess = await hybridStore.setUser(response.data.data.user, response.data.data.token);

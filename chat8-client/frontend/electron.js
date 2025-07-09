@@ -3,6 +3,11 @@ const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
+// 引入 @electron/remote 模块
+const remoteMain = require('@electron/remote/main');
+
+// 初始化 remote 模块
+remoteMain.initialize();
 
 // 保持对窗口对象的全局引用，如果不这么做的话，当JavaScript对象被
 // 垃圾回收的时候，窗口会被自动地关闭
@@ -116,13 +121,16 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      enableRemoteModule: false,
+      enableRemoteModule: true, // 启用 remote 模块
       webSecurity: true,
       preload: path.join(__dirname, 'preload.js')
     },
     show: false, // 先不显示，等加载完成后再显示
     titleBarStyle: 'default'
   });
+
+  // 为窗口启用 remote 模块
+  remoteMain.enable(mainWindow.webContents);
 
   // 设置应用菜单
   const template = [

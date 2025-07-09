@@ -3,10 +3,12 @@ from contextlib import asynccontextmanager
 import logging
 from dotenv import load_dotenv
 import os
+from app.db.models import Base
+from app.db.database import engine
 
 # 加载环境变量
 load_dotenv()
-from app.websocket.manager import ConnectionManager
+from app.websocket.manager import ConnectionManager, manager
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.endpoints import friends, messages, auth, signaling, avatar, security, upload, user_status, user_profile
 from app.websocket.events import websocket_endpoint
@@ -17,7 +19,7 @@ from fastapi.exception_handlers import RequestValidationError
 from fastapi.exceptions import HTTPException
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
 from app.core.security import decode_access_token
-from app.services.user_states_update import initialize_user_states_service, cleanup_user_states_service
+from app.services.user_states_update import initialize_user_states_service, cleanup_user_states_service, initialize_user_presence_service, cleanup_user_presence_service
 from app.db.database import SessionLocal
 from app.db.models import User
 from app.core.config import UPLOADS_DIR
@@ -94,34 +96,10 @@ app = FastAPI(lifespan=lifespan)
 #    "https://www.your-chat-app.com"
 # ]
 origins = [
-    "http://192.168.64.1:8082",
-    "http://26.201.54.147:8082",
-    "http://26.201.54.147:8083",
-    "http://192.168.64.1:8080",
-    "http://26.201.54.147:8080",
-    "http://2.0.0.1:8082",
-    "http://localhost:8081",
-    "http://26.201.54.147:8081",
-    "http://10.21.166.204:8083",
-    "http://127.0.0.1:8083",
-    "http://2.0.0.1:8081",
-    "http://192.168.68.1:8083",
-    "http://10.21.166.204:8082",
-    "http://10.21.166.204:8081",
-    "http://192.168.68.1:8080",
-    "http://192.168.64.1:8083",
     "http://localhost:8080",
-    "http://127.0.0.1:8081",
-    "http://192.168.68.1:8081",
-    "http://192.168.64.1:8081",
-    "http://127.0.0.1:8082",
-    "http://localhost:8083",
-    "http://127.0.0.1:8080",
-    "http://2.0.0.1:8080",
+    "http://localhost:8081",
     "http://localhost:8082",
-    "http://10.21.166.204:8080",
-    "http://2.0.0.1:8083",
-    "http://192.168.68.1:8082"
+    "https://*.ngrok-free.app" 
 ]
 
 # 这段是一个全局安全配置。它配置了 CORS策略。简单说，它就像一个服务器的门卫，规定了哪些外部网站可以访问本服务器的资源。
@@ -135,8 +113,8 @@ app.add_middleware(
 )
 
 # 注册API路由
-app.include_router(auth.router, prefix="/api/v1")
-app.include_router(friends.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
+app.include_router(friends.router, prefix="/api/v1", tags=["friends"])
 app.include_router(messages.router, prefix="/api/v1")
 app.include_router(signaling.router, prefix="/api/v1")
 app.include_router(avatar.router, prefix="/api/v1")
@@ -227,6 +205,17 @@ async def global_exception_handler(request: Request, exc: Exception):
             "error": "INTERNAL_SERVER_ERROR"
         }
     )
+
+@app.on_event("startup")
+async def startup_event():
+    async with engine.begin() as conn:
+        # await conn.run_sync(Base.metadata.drop_all) # 可选：取消注释以在每次启动时清空数据库
+        await conn.run_sync(Base.metadata.create_all)
+    initialize_user_presence_service(manager)
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await cleanup_user_presence_service()
 
 if __name__ == "__main__":
     import uvicorn

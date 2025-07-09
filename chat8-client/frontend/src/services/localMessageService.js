@@ -1,15 +1,15 @@
 import { 
-  initDatabase, 
+  getDb,
   addMessage, 
   getMessagesWithFriend, 
   checkDatabaseStatus,
   clearAllMessages,
   storeUserKeys,
-  getUserKeys,
+  getUserKeys as dbGetUserKeys,
   clearUserKeys,
   validateUserKeys,
-  addContact,
-  getContacts,
+  addContact as dbAddContact,
+  getContacts as dbGetContacts,
   markMessageAsRead,
   deleteMessage
 } from '../client_db/database.js';
@@ -17,47 +17,26 @@ import CryptoJS from 'crypto-js';
 import { getChinaTimeISO } from '../utils/timeUtils.js';
 
 /**
- * 客户端本地消息处理服务
- * 负责消息的加密、解密、存储和管理
+ * A stateless service for handling local message encryption, decryption, and storage.
+ * It relies on an initialized database instance provided by `getDb()`.
  */
 class LocalMessageService {
   constructor() {
-    this.isInitialized = false;
     this.encryptionEnabled = true;
-    this.currentUserId = null;
   }
 
   /**
-   * 初始化本地消息服务
+   * Helper to get the current user ID from localStorage.
    */
-  async initialize() {
+  _getCurrentUserId() {
+    const userStr = localStorage.getItem('user');
+    if (!userStr) return null;
     try {
-      // 获取当前用户信息
-      const userStr = localStorage.getItem('user');
-      if (!userStr) {
-        throw new Error('用户未登录');
-      }
-      
       const user = JSON.parse(userStr);
-      this.currentUserId = user.id || user.userId;
-      
-      // 初始化本地数据库
-      await initDatabase();
-      
-      // 检查用户密钥
-      const keys = await getUserKeys();
-      if (!keys) {
-        console.log('🔑 正在生成新的用户密钥...');
-        await this.generateUserKeys();
-      }
-      
-      this.isInitialized = true;
-      console.log('✅ 本地消息服务初始化成功');
-      
-      return true;
+      return user.id || user.userId;
     } catch (error) {
-      console.error('❌ 本地消息服务初始化失败:', error);
-      throw error;
+      console.error('Failed to parse user info:', error);
+      return null;
     }
   }
 
@@ -103,8 +82,8 @@ class LocalMessageService {
       console.error('❌ 生成密钥对失败:', error);
       // 如果Web Crypto API不可用，使用简化的密钥生成
       const fallbackKeys = {
-        publicKey: `pub_${this.currentUserId}_${Date.now()}`,
-        privateKey: `priv_${this.currentUserId}_${Date.now()}`,
+        publicKey: `pub_${this._getCurrentUserId()}_${Date.now()}`,
+        privateKey: `priv_${this._getCurrentUserId()}_${Date.now()}`,
         algorithm: 'AES-256',
         keySize: 256,
         createdAt: getChinaTimeISO()
@@ -202,16 +181,15 @@ class LocalMessageService {
    */
   async sendMessage(messageData) {
     try {
-      if (!this.isInitialized) {
-        await this.initialize();
+      const currentUserId = this._getCurrentUserId();
+      if (!currentUserId) {
+        throw new Error("User not logged in, cannot send message.");
       }
-      
-      // 加密消息内容
+
       const encryptedData = await this.encryptMessage(messageData.content);
       
-      // 准备消息对象
       const message = {
-        from: this.currentUserId,
+        from: currentUserId,
         to: messageData.to,
         content: encryptedData.content,
         timestamp: getChinaTimeISO(),
@@ -224,10 +202,10 @@ class LocalMessageService {
         algorithm: encryptedData.algorithm
       };
       
-      // 保存到本地数据库
+      // The addMessage function from database.js will use getDb() internally
       const messageId = await addMessage(message);
       
-      console.log('✅ 消息已加密并保存到本地, ID:', messageId);
+      console.log('✅ Message encrypted and saved locally with ID:', messageId);
       
       return {
         success: true,
@@ -235,7 +213,7 @@ class LocalMessageService {
         message: message
       };
     } catch (error) {
-      console.error('❌ 发送消息失败:', error);
+      console.error('❌ Failed to send message:', error);
       return {
         success: false,
         error: error.message
@@ -248,37 +226,17 @@ class LocalMessageService {
    */
   async receiveMessage(messageData) {
     try {
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
+      const decryptedContent = await this.decryptMessage(messageData);
       
-      // 如果消息已加密，先解密
-      let content = messageData.content;
-      if (messageData.encrypted && messageData.encryptionKey) {
-        content = await this.decryptMessage({
-          content: messageData.content,
-          encrypted: messageData.encrypted,
-          key: messageData.encryptionKey,
-          iv: messageData.encryptionIv
-        });
-      }
-      
-      // 准备消息对象
       const message = {
-        from: messageData.from,
-        to: this.currentUserId,
-        content: content,
-        timestamp: messageData.timestamp || getChinaTimeISO(),
-        method: messageData.method || 'P2P',
-        encrypted: false, // 本地存储解密后的内容
-        messageType: messageData.messageType || 'text',
-        destroyAfter: messageData.destroyAfter || null
+        ...messageData,
+        content: decryptedContent,
+        isRead: false
       };
       
-      // 保存到本地数据库
       const messageId = await addMessage(message);
       
-      console.log('✅ 接收到的消息已解密并保存到本地, ID:', messageId);
+      console.log('✅ Received message saved locally with ID:', messageId);
       
       return {
         success: true,
@@ -286,8 +244,8 @@ class LocalMessageService {
         message: message
       };
     } catch (error) {
-      console.error('❌ 接收消息失败:', error);
-      return {
+      console.error('❌ Failed to receive message:', error);
+       return {
         success: false,
         error: error.message
       };
@@ -299,10 +257,6 @@ class LocalMessageService {
    */
   async getChatHistory(friendId, options = {}) {
     try {
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
-      
       const messages = await getMessagesWithFriend(friendId, options);
       
       console.log(`📖 获取到与用户 ${friendId} 的 ${messages.length} 条聊天记录`);
@@ -353,7 +307,7 @@ class LocalMessageService {
    */
   async addContact(contactData) {
     try {
-      const contactId = await addContact(contactData);
+      const contactId = await dbAddContact(contactData);
       return { success: true, contactId: contactId };
     } catch (error) {
       console.error('❌ 添加联系人失败:', error);
@@ -366,7 +320,7 @@ class LocalMessageService {
    */
   async getContacts() {
     try {
-      const contacts = await getContacts();
+      const contacts = await dbGetContacts();
       return { success: true, contacts: contacts };
     } catch (error) {
       console.error('❌ 获取联系人失败:', error);
@@ -405,7 +359,7 @@ class LocalMessageService {
    */
   async getUserKeys() {
     try {
-      const keys = await getUserKeys();
+      const keys = await dbGetUserKeys();
       return { success: true, keys: keys };
     } catch (error) {
       console.error('❌ 获取密钥失败:', error);
@@ -435,21 +389,14 @@ class LocalMessageService {
   }
 
   /**
-   * 获取当前用户ID
-   */
-  getCurrentUserId() {
-    return this.currentUserId;
-  }
-
-  /**
    * 检查服务是否已初始化
    */
   isReady() {
-    return this.isInitialized;
+    return true; // This service is always ready as it relies on getDb()
   }
 }
 
-// 创建单例实例
+// Export a single instance of the service
 const localMessageService = new LocalMessageService();
 
 // 在浏览器控制台中暴露调试函数
@@ -467,4 +414,3 @@ if (typeof window !== 'undefined') {
 }
 
 export default localMessageService;
-export { LocalMessageService };

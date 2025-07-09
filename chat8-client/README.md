@@ -12,6 +12,16 @@
 - 本地消息存储
 - Signal协议加密
 
+## 新功能：本地文件系统存储
+
+最新版本的 Chat8 客户端支持将聊天数据存储在本地文件系统中，而不是浏览器的 IndexedDB 中。这有以下优势：
+
+1. **持久性存储**：数据存储在用户数据目录，即使清除浏览器缓存也不会丢失
+2. **更好的隐私**：数据不受浏览器管理，更加安全
+3. **跨会话访问**：即使在不同的浏览器会话中，也能访问相同的数据
+
+数据存储路径：`%APPDATA%\chat8-client\chat8-data\user_{userId}\`（Windows）或 `~/Library/Application Support/chat8-client/chat8-data/user_{userId}/`（macOS）
+
 ## 环境要求
 
 - Node.js 16+

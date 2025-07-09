@@ -1,25 +1,29 @@
-import Dexie from 'dexie';
+// import Dexie from 'dexie'; // 不再使用 Dexie
 import CryptoJS from 'crypto-js';
 import { getChinaTimeISO } from '../utils/timeUtils.js';
+import DatabaseAdapter from './database/adapter';
+import { isElectronEnvironment } from './database/local-storage';
 
-// 客户端本地数据库类
-class Chat8LocalDB extends Dexie {
-  constructor() {
-    super('Chat8LocalDB');
-    
-    // 定义数据库结构
-    this.version(1).stores({
-      messages: '++id, from, to, content, timestamp, method, encrypted, messageType, destroyAfter, isRead',
-      contacts: '++id, userId, username, publicKey, lastSeen, status',
-      userKeys: '++id, userId, publicKey, privateKey, keyPair, createdAt',
-      settings: '++id, key, value',
-      conversations: '++id, userId, lastMessage, lastMessageTime, unreadCount'
-    });
+// 检查运行环境
+const isElectron = isElectronEnvironment();
+console.log(`数据库初始化 - 运行环境: ${isElectron ? 'Electron' : 'Web浏览器'}`);
+console.log(`数据库存储方式: ${isElectron ? '本地文件系统' : 'IndexedDB'}`);
+
+// The database instance for the currently logged-in user.
+// This will be null until initDatabase is called.
+let db = null;
+
+/**
+ * Gets the database instance for the current user.
+ * Throws an error if the database is not initialized.
+ * @returns {Object} The initialized database instance.
+ */
+export const getDb = () => {
+  if (!db) {
+    throw new Error('Database not initialized. Please call initDatabase after user login.');
   }
-}
-
-// 创建数据库实例
-const db = new Chat8LocalDB();
+  return db;
+};
 
 // 获取当前用户ID
 function getCurrentUserId() {
@@ -64,25 +68,30 @@ function decryptContent(encryptedContent, key) {
 }
 
 /**
- * 初始化本地数据库
+ * Initializes a user-specific local database.
+ * This must be called after a user logs in.
+ * @param {number} userId The ID of the logged-in user.
  * @returns {Promise<boolean>}
  */
-export const initDatabase = async () => {
+export const initDatabase = async (userId) => {
+  if (!userId) {
+    throw new Error('User ID is required to initialize the database');
+  }
+  
   try {
-    const userId = getCurrentUserId();
-    if (!userId) {
-      throw new Error('用户未登录，无法初始化数据库');
-    }
+    console.log(`🔧 正在为用户 ${userId} 初始化数据库...`);
+    console.log(`存储类型: ${isElectron ? '本地文件系统' : 'IndexedDB'}`);
     
-    // 打开数据库
+    // 创建新的数据库适配器实例
+    db = new DatabaseAdapter(userId);
+    
+    // 打开数据库连接
     await db.open();
     
-    console.log('🎉 Chat8 本地数据库已成功初始化!');
-    console.log('📍 数据库类型: IndexedDB (浏览器本地存储)');
-    console.log('👤 当前用户ID:', userId);
+    console.log(`🎉 数据库初始化成功，用户ID: ${userId}`);
     
-    // 检查用户密钥是否存在
-    const userKeys = await db.userKeys.where('userId').equals(userId).first();
+    // 检查用户密钥是否存在，不存在则生成
+    const userKeys = await db.userKeys.get(userId);
     if (!userKeys) {
       console.log('🔑 正在生成用户密钥对...');
       await generateUserKeyPair(userId);
@@ -90,31 +99,30 @@ export const initDatabase = async () => {
     
     return true;
   } catch (error) {
-    console.error('❌ 本地数据库初始化失败:', error.message);
+    console.error(`❌ 数据库初始化失败:`, error.message);
     throw error;
   }
 };
 
 /**
- * 生成用户密钥对
- * @param {number} userId - 用户ID
+ * Generates and stores a key pair for the user.
+ * @param {number} userId - The user's ID.
  */
 async function generateUserKeyPair(userId) {
+  const localDb = getDb();
   try {
-    // 生成RSA密钥对（简化版，实际应用中应使用Web Crypto API）
     const keyPair = {
       publicKey: `pub_${userId}_${Date.now()}`,
       privateKey: `priv_${userId}_${Date.now()}`
     };
     
-    await db.userKeys.add({
-      userId: userId,
+    await localDb.userKeys.add({
+      id: userId,
       publicKey: keyPair.publicKey,
       privateKey: keyPair.privateKey,
       keyPair: JSON.stringify(keyPair),
       createdAt: getChinaTimeISO()
     });
-    
     console.log('✅ 用户密钥对生成成功');
   } catch (error) {
     console.error('❌ 密钥对生成失败:', error);
@@ -123,25 +131,30 @@ async function generateUserKeyPair(userId) {
 }
 
 /**
- * 添加消息到本地数据库
- * @param {object} message - 消息对象
- * @returns {Promise<number>} - 返回消息ID
+ * Adds a message to the local database.
+ * @param {object} message - The message object.
+ * @returns {Promise<number>} - The ID of the added message.
  */
 export const addMessage = async (message) => {
+  const localDb = getDb();
+  const userId = getCurrentUserId();
+  if (!userId) throw new Error('User not logged in');
+
   try {
-    const userId = getCurrentUserId();
-    if (!userId) {
-      throw new Error('用户未登录');
+    // 无论是发送还是接收，都使用自己的密钥来处理本地存储的加密
+    const userKeys = await localDb.userKeys.get(userId);
+    const symmetricKey = userKeys?.privateKey; // 使用自己的私钥作为对称加密的密钥
+
+    if (message.encrypted && !symmetricKey) {
+      console.error('无法加密/存储消息，因为用户密钥不存在。');
+      throw new Error('User key not available for encryption.');
     }
-    
-    // 获取用户私钥进行加密
-    const userKeys = await db.userKeys.where('userId').equals(userId).first();
-    const encryptionKey = userKeys?.privateKey || 'default_key';
-    
+
     const messageData = {
       from: message.from,
       to: message.to,
-      content: message.encrypted ? encryptContent(message.content, encryptionKey) : message.content,
+      // 如果消息标记为加密，则使用对称密钥加密内容
+      content: message.encrypted ? encryptContent(message.content, symmetricKey) : message.content,
       timestamp: message.timestamp || getChinaTimeISO(),
       method: message.method || 'P2P',
       encrypted: message.encrypted || false,
@@ -149,14 +162,11 @@ export const addMessage = async (message) => {
       destroyAfter: message.destroyAfter || null,
       isRead: false
     };
-    
-    const messageId = await db.messages.add(messageData);
-    
-    // 更新会话信息
+
+    const messageId = await localDb.messages.add(messageData);
     const conversationUserId = message.from === userId ? message.to : message.from;
     await updateConversation(conversationUserId, message.content, messageData.timestamp);
-    
-    console.log('✅ 消息已保存到本地数据库, ID:', messageId);
+    console.log('✅ 消息已保存到本地数据库，ID:', messageId);
     return messageId;
   } catch (error) {
     console.error('❌ 保存消息失败:', error);
@@ -165,70 +175,74 @@ export const addMessage = async (message) => {
 };
 
 /**
- * 获取与好友的消息记录
- * @param {number} friendId - 好友ID
- * @param {object} options - 查询选项
- * @returns {Promise<Array>} - 消息列表
+ * Retrieves messages with a specific friend using a compound index.
+ * @param {number} friendId - The friend's ID.
+ * @param {object} options - Query options like limit, offset.
+ * @returns {Promise<object>} - A structured object containing messages and total count.
  */
 export const getMessagesWithFriend = async (friendId, options = {}) => {
+  const localDb = getDb();
+  const userId = getCurrentUserId();
+  if (!userId) {
+    console.warn('用户未登录，无法获取消息。');
+    return { messages: [], total: 0 }; // Return a structured object
+  }
+  
+  const { limit = 50, offset = 0 } = options;
+
   try {
-    const userId = getCurrentUserId();
-    if (!userId) {
-      throw new Error('用户未登录');
-    }
-    
-    const { limit = 50, offset = 0, search = null } = options;
-    
-    // 查询与好友的消息
-    let query = db.messages
-      .where('from').equals(userId).and(msg => msg.to === friendId)
-      .or('from').equals(friendId).and(msg => msg.to === userId);
-    
-    if (search) {
-      query = query.filter(msg => msg.content.includes(search));
-    }
-    
-    const messages = await query
-      .orderBy('timestamp')
+    // 使用复合查询条件获取消息
+    const allMessages = await localDb.messages.where('[from+to]')
+      .equals([userId, friendId])
+      .or('[from+to]')
+      .equals([friendId, userId])
       .reverse()
-      .offset(offset)
-      .limit(limit)
-      .toArray();
-    
-    // 解密消息内容
-    const userKeys = await db.userKeys.where('userId').equals(userId).first();
-    const decryptionKey = userKeys?.privateKey || 'default_key';
-    
-    const decryptedMessages = messages.map(msg => ({
+      .sortBy('timestamp');
+
+    const total = allMessages.length;
+    // 手动应用分页
+    const paginatedMessages = allMessages.slice(offset, offset + limit);
+
+    // 总是使用当前用户的私钥来解密历史记录
+    const userKeys = await localDb.userKeys.get(userId);
+    const decryptionKey = userKeys?.privateKey;
+
+    if (!decryptionKey) {
+      console.warn('无法解密历史消息，因为用户密钥不存在。');
+    }
+
+    const decryptedMessages = paginatedMessages.map(msg => ({
       ...msg,
-      content: msg.encrypted ? decryptContent(msg.content, decryptionKey) : msg.content
+      // 只有标记为加密的消息才尝试解密
+      content: (msg.encrypted && decryptionKey) ? decryptContent(msg.content, decryptionKey) : msg.content
     }));
     
-    return decryptedMessages;
+    return { messages: decryptedMessages, total: total };
+
   } catch (error) {
     console.error('❌ 获取消息失败:', error);
-    return [];
+    return { messages: [], total: 0 }; // Return a structured object on failure
   }
 };
 
 /**
- * 更新会话信息
- * @param {number} userId - 对方用户ID
- * @param {string} lastMessage - 最后一条消息
- * @param {string} timestamp - 时间戳
+ * Updates conversation details.
+ * @param {number} userId - The other user's ID in the conversation.
+ * @param {string} lastMessage - The last message content.
+ * @param {string} timestamp - The timestamp of the last message.
  */
 async function updateConversation(userId, lastMessage, timestamp) {
+  const localDb = getDb();
   try {
-    const existing = await db.conversations.where('userId').equals(userId).first();
-    
+    const existing = await localDb.conversations.where('userId').equals(userId).first();
     if (existing) {
-      await db.conversations.update(existing.id, {
+      await localDb.conversations.update(existing.id, {
         lastMessage: lastMessage,
         lastMessageTime: timestamp,
-        unreadCount: existing.unreadCount + 1
+        unreadCount: (existing.unreadCount || 0) + 1
       });
     } else {
-      await db.conversations.add({
+      await localDb.conversations.add({
         userId: userId,
         lastMessage: lastMessage,
         lastMessageTime: timestamp,
@@ -246,52 +260,40 @@ async function updateConversation(userId, lastMessage, timestamp) {
  */
 export const checkDatabaseStatus = async () => {
   try {
+    const localDb = getDb();
     const userId = getCurrentUserId();
     if (!userId) {
       return { success: false, error: '用户未登录' };
     }
     
-    const messageCount = await db.messages.count();
-    const contactCount = await db.contacts.count();
-    const conversationCount = await db.conversations.count();
-    const userKeys = await db.userKeys.where('userId').equals(userId).first();
-    
+    const status = await localDb.status();
     return {
       success: true,
-      database: {
-        exists: true,
-        type: 'IndexedDB',
-        messageCount: messageCount,
-        contactCount: contactCount,
-        conversationCount: conversationCount
-      },
-      user: {
-        id: userId,
-        hasKeys: !!userKeys
-      },
-      storage: {
-        type: 'Browser Local Storage',
-        encrypted: true
-      }
+      userId: userId,
+      initialized: status.initialized,
+      tables: status.tables
     };
   } catch (error) {
-    console.error('❌ 检查数据库状态失败:', error);
-    return { success: false, error: error.message };
+    return {
+      success: false,
+      error: error.message
+    };
   }
 };
 
 /**
  * 清空所有消息
- * @returns {Promise<boolean>}
+ * @returns {Promise<boolean>} - 操作是否成功
  */
 export const clearAllMessages = async () => {
   try {
-    await db.messages.clear();
-    await db.conversations.clear();
-    console.log('✅ 所有消息已清空');
+    const localDb = getDb();
+    await localDb.messages.clear();
+    await localDb.conversations.clear();
+    console.log('✅ 所有消息和会话记录已清除');
     return true;
   } catch (error) {
-    console.error('❌ 清空消息失败:', error);
+    console.error('❌ 清除消息失败:', error);
     return false;
   }
 };
@@ -299,29 +301,26 @@ export const clearAllMessages = async () => {
 /**
  * 存储用户密钥
  * @param {object} keyData - 密钥数据
- * @returns {Promise<boolean>}
+ * @returns {Promise<boolean>} - 操作是否成功
  */
 export const storeUserKeys = async (keyData) => {
   try {
+    const localDb = getDb();
     const userId = getCurrentUserId();
     if (!userId) {
-      throw new Error('用户未登录');
+      throw new Error('用户未登录，无法存储密钥');
     }
     
-    const existing = await db.userKeys.where('userId').equals(userId).first();
-    
-    if (existing) {
-      await db.userKeys.update(existing.id, {
-        publicKey: keyData.publicKey,
-        privateKey: keyData.privateKey,
-        keyPair: JSON.stringify(keyData)
+    const existingKeys = await localDb.userKeys.get(userId);
+    if (existingKeys) {
+      await localDb.userKeys.update(existingKeys.id, {
+        ...keyData,
+        updatedAt: getChinaTimeISO()
       });
     } else {
-      await db.userKeys.add({
-        userId: userId,
-        publicKey: keyData.publicKey,
-        privateKey: keyData.privateKey,
-        keyPair: JSON.stringify(keyData),
+      await localDb.userKeys.add({
+        id: userId,
+        ...keyData,
         createdAt: getChinaTimeISO()
       });
     }
@@ -329,111 +328,117 @@ export const storeUserKeys = async (keyData) => {
     console.log('✅ 用户密钥已保存');
     return true;
   } catch (error) {
-    console.error('❌ 保存密钥失败:', error);
+    console.error('❌ 存储用户密钥失败:', error);
     return false;
   }
 };
 
 /**
  * 获取用户密钥
- * @param {number} userId - 用户ID（可选，默认当前用户）
+ * @param {number} userId - 用户ID，默认为当前用户
  * @returns {Promise<object|null>} - 用户密钥
  */
 export const getUserKeys = async (userId = null) => {
   try {
+    const localDb = getDb();
     const targetUserId = userId || getCurrentUserId();
     if (!targetUserId) {
-      throw new Error('用户ID无效');
+      throw new Error('未指定用户ID');
     }
     
-    const userKeys = await db.userKeys.where('userId').equals(targetUserId).first();
-    
-    if (userKeys) {
-      return {
-        userId: userKeys.userId,
-        publicKey: userKeys.publicKey,
-        privateKey: userKeys.privateKey,
-        keyPair: JSON.parse(userKeys.keyPair || '{}'),
-        createdAt: userKeys.createdAt
-      };
-    }
-    
-    return null;
+    const keys = await localDb.userKeys.get(targetUserId);
+    return keys;
   } catch (error) {
-    console.error('❌ 获取密钥失败:', error);
+    console.error('❌ 获取用户密钥失败:', error);
     return null;
   }
 };
 
 /**
  * 清除用户密钥
- * @param {number} userId - 用户ID（可选，默认当前用户）
- * @returns {Promise<boolean>}
+ * @param {number} userId - 用户ID，默认为当前用户
+ * @returns {Promise<boolean>} - 操作是否成功
  */
 export const clearUserKeys = async (userId = null) => {
   try {
+    const localDb = getDb();
     const targetUserId = userId || getCurrentUserId();
     if (!targetUserId) {
-      throw new Error('用户ID无效');
+      throw new Error('未指定用户ID');
     }
     
-    await db.userKeys.where('userId').equals(targetUserId).delete();
-    console.log('✅ 用户密钥已清除');
+    const keys = await localDb.userKeys.get(targetUserId);
+    if (keys) {
+      await localDb.userKeys.delete(keys.id);
+      console.log('✅ 用户密钥已清除');
+    }
     return true;
   } catch (error) {
-    console.error('❌ 清除密钥失败:', error);
+    console.error('❌ 清除用户密钥失败:', error);
     return false;
   }
 };
 
 /**
- * 验证用户密钥完整性
- * @returns {Promise<object>}
+ * 验证用户密钥
+ * @returns {Promise<object>} - 验证结果
  */
 export const validateUserKeys = async () => {
   try {
+    const localDb = getDb();
     const userId = getCurrentUserId();
     if (!userId) {
       return { valid: false, error: '用户未登录' };
     }
     
-    const userKeys = await getUserKeys(userId);
-    
-    if (!userKeys) {
-      return { valid: false, error: '密钥不存在' };
+    const keys = await localDb.userKeys.get(userId);
+    if (!keys) {
+      return { valid: false, error: '未找到用户密钥' };
     }
     
-    const hasPublicKey = !!userKeys.publicKey;
-    const hasPrivateKey = !!userKeys.privateKey;
-    const hasKeyPair = !!userKeys.keyPair;
+    // 验证密钥是否完整
+    const requiredFields = ['publicKey', 'privateKey'];
+    const missingFields = requiredFields.filter(field => !keys[field]);
+    
+    if (missingFields.length > 0) {
+      return {
+        valid: false,
+        error: `密钥不完整，缺少字段: ${missingFields.join(', ')}`,
+        keys: {
+          id: keys.id,
+          hasPublicKey: !!keys.publicKey,
+          hasPrivateKey: !!keys.privateKey,
+          createdAt: keys.createdAt
+        }
+      };
+    }
     
     return {
-      valid: hasPublicKey && hasPrivateKey && hasKeyPair,
-      details: {
-        hasPublicKey,
-        hasPrivateKey,
-        hasKeyPair,
-        createdAt: userKeys.createdAt
+      valid: true,
+      keys: {
+        id: keys.id,
+        hasPublicKey: true,
+        hasPrivateKey: true,
+        createdAt: keys.createdAt,
+        updatedAt: keys.updatedAt
       }
     };
   } catch (error) {
-    console.error('❌ 验证密钥失败:', error);
+    console.error('❌ 验证用户密钥失败:', error);
     return { valid: false, error: error.message };
   }
 };
 
-// 添加联系人
+/**
+ * 添加联系人
+ * @param {object} contact - 联系人信息
+ * @returns {Promise<number|string>} - 联系人ID
+ */
 export const addContact = async (contact) => {
   try {
-    const contactId = await db.contacts.add({
-      userId: contact.userId,
-      username: contact.username,
-      publicKey: contact.publicKey,
-      lastSeen: contact.lastSeen || getChinaTimeISO(),
-      status: contact.status || 'offline'
-    });
-    
-    console.log('✅ 联系人已添加, ID:', contactId);
+    const localDb = getDb();
+    const contactId = await localDb.contacts.add(contact);
+    console.log('✅ 联系人已添加，ID:', contactId);
     return contactId;
   } catch (error) {
     console.error('❌ 添加联系人失败:', error);
@@ -441,34 +446,46 @@ export const addContact = async (contact) => {
   }
 };
 
-// 获取所有联系人
+/**
+ * 获取所有联系人
+ * @returns {Promise<Array>} - 联系人列表
+ */
 export const getContacts = async () => {
   try {
-    const contacts = await db.contacts.toArray();
-    return contacts;
+    const localDb = getDb();
+    return await localDb.contacts.toArray();
   } catch (error) {
-    console.error('❌ 获取联系人失败:', error);
+    console.error('❌ 获取联系人列表失败:', error);
     return [];
   }
 };
 
-// 标记消息为已读
+/**
+ * 标记消息为已读
+ * @param {number|string} messageId - 消息ID
+ * @returns {Promise<boolean>} - 操作是否成功
+ */
 export const markMessageAsRead = async (messageId) => {
   try {
-    await db.messages.update(messageId, { isRead: true });
-    console.log('✅ 消息已标记为已读');
+    const localDb = getDb();
+    await localDb.messages.update(messageId, { isRead: true });
     return true;
   } catch (error) {
-    console.error('❌ 标记消息失败:', error);
+    console.error('❌ 标记消息为已读失败:', error);
     return false;
   }
 };
 
-// 删除消息
+/**
+ * 删除消息
+ * @param {number|string} messageId - 消息ID
+ * @returns {Promise<boolean>} - 操作是否成功
+ */
 export const deleteMessage = async (messageId) => {
   try {
-    await db.messages.delete(messageId);
-    console.log('✅ 消息已删除');
+    const localDb = getDb();
+    await localDb.messages.delete(messageId);
+    console.log('✅ 消息已删除，ID:', messageId);
     return true;
   } catch (error) {
     console.error('❌ 删除消息失败:', error);

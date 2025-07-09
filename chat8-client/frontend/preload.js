@@ -5,6 +5,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const { app } = require('@electron/remote');
 
 // 暴露安全的API给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -74,6 +76,108 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 重启应用
   restartApp: () => {
     ipcRenderer.invoke('restart-app');
+  },
+  
+  // 文件系统操作
+  fs: {
+    // 读取文件
+    readFile: (filePath, options) => {
+      try {
+        return fs.readFileSync(filePath, options);
+      } catch (error) {
+        console.error('读取文件失败:', error);
+        throw error;
+      }
+    },
+    
+    // 写入文件
+    writeFile: (filePath, data, options) => {
+      try {
+        fs.writeFileSync(filePath, data, options);
+        return true;
+      } catch (error) {
+        console.error('写入文件失败:', error);
+        throw error;
+      }
+    },
+    
+    // 检查文件/目录是否存在
+    exists: (path) => {
+      return fs.existsSync(path);
+    },
+    
+    // 创建目录
+    mkdir: (path, options) => {
+      try {
+        fs.mkdirSync(path, options);
+        return true;
+      } catch (error) {
+        console.error('创建目录失败:', error);
+        throw error;
+      }
+    },
+    
+    // 获取目录内容
+    readdir: (path) => {
+      try {
+        return fs.readdirSync(path);
+      } catch (error) {
+        console.error('读取目录失败:', error);
+        throw error;
+      }
+    },
+    
+    // 删除文件
+    unlink: (path) => {
+      try {
+        fs.unlinkSync(path);
+        return true;
+      } catch (error) {
+        console.error('删除文件失败:', error);
+        throw error;
+      }
+    },
+    
+    // 获取文件信息
+    stat: (path) => {
+      try {
+        return fs.statSync(path);
+      } catch (error) {
+        console.error('获取文件信息失败:', error);
+        throw error;
+      }
+    }
+  },
+  
+  // 路径操作
+  path: {
+    join: (...args) => path.join(...args),
+    resolve: (...args) => path.resolve(...args),
+    dirname: (p) => path.dirname(p),
+    basename: (p, ext) => path.basename(p, ext),
+    extname: (p) => path.extname(p)
+  },
+  
+  // 获取系统路径
+  getPath: (name) => {
+    try {
+      if (app) {
+        return app.getPath(name);
+      } else {
+        // 备用方案
+        const paths = {
+          home: os.homedir(),
+          appData: path.join(os.homedir(), 'AppData', 'Roaming'),
+          userData: path.join(os.homedir(), 'AppData', 'Roaming', 'chat8'),
+          temp: os.tmpdir(),
+          downloads: path.join(os.homedir(), 'Downloads')
+        };
+        return paths[name] || '';
+      }
+    } catch (error) {
+      console.error('获取路径失败:', error);
+      return '';
+    }
   }
 });
 

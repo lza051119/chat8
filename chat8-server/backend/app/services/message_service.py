@@ -3,6 +3,10 @@ from app.db import models
 from datetime import datetime, timedelta, timezone
 from typing import List
 from app.services.message_db_service import MessageDBService
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.repositories.message_repository import message_repository
+from app.schemas.message import MessageCreate
+from app.db.models import Message
 
 # 中国时区
 CHINA_TZ = timezone(timedelta(hours=8))
@@ -108,3 +112,30 @@ def delete_message(db: Session, user_id: int, message_id: int):
     db.delete(msg)
     db.commit()
     return True, None
+
+class MessageService:
+    async def create_message(self, db: AsyncSession, *, message_in: MessageCreate, from_user_id: int) -> Message:
+        """
+        创建一条新消息。
+        """
+        create_data = message_in.model_dump()
+        create_data['from_user_id'] = from_user_id
+        return await message_repository.create(db, obj_in=create_data)
+
+    async def get_message_history(
+        self, 
+        db: AsyncSession, 
+        *, 
+        user_id: int, 
+        friend_id: int,
+        skip: int,
+        limit: int
+    ) -> list[Message]:
+        """
+        获取两个用户间的聊天记录。
+        """
+        return await message_repository.get_history_with_user(
+            db, user_id=user_id, friend_id=friend_id, skip=skip, limit=limit
+        )
+
+message_service = MessageService()

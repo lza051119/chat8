@@ -576,13 +576,16 @@ function getConnectionStatus() {
 }
 
 // 监听联系人变化，加载历史消息并滚动到底部
-watch(contact, async (newContact) => {
-  if (newContact) {
+watch(() => contact.value, async (newContact, oldContact) => {
+  if (newContact && (!oldContact || newContact.id !== oldContact.id)) {
+    // 当联系人变化时，加载历史消息
     await loadHistoryMessages(newContact.id);
-    await nextTick();
+    // 滚动到底部
     scrollToBottom();
+    // 启动阅后即焚计时器
+    startBurnAfterTimer();
   }
-});
+}, { deep: true });
 
 // 监听联系人头像变化，确保头像实时更新
 watch(() => contact.value?.avatar, (newAvatar, oldAvatar) => {
@@ -600,9 +603,9 @@ watch(messages, async () => {
 }, { deep: true });
 
 onMounted(async () => {
-  if (contact.value) {
-    await loadHistoryMessages(contact.value.id);
-  }
+  // The watch effect above is sufficient to load messages when a contact is selected.
+  // Calling it here creates a race condition with database initialization.
+  // We only need to ensure the view scrolls down if messages are already present.
   scrollToBottom();
   
   // 启动阅后即焚倒计时
@@ -634,14 +637,19 @@ async function loadHistoryMessages(friendId) {
   if (!currentUser.value) return;
   try {
     const result = await getMessagesWithFriend(friendId, { limit: 50, offset: 0 });
-    hybridStore.setMessages(friendId, result.messages);
-    console.log(`已从本地数据库加载与 ${friendId} 的 ${result.messages.length} 条历史消息`);
-    
-    // 检查是否有阅后即焚消息，如果有则重新启动清理定时器
-    const hasDestroyAfterMessages = result.messages.some(msg => msg.destroy_after && msg.destroy_after > Math.floor(Date.now() / 1000));
-    if (hasDestroyAfterMessages) {
-      console.log('检测到阅后即焚消息，重新启动清理定时器');
-      hybridStore.startBurnAfterCleanupTimer();
+    if (result && Array.isArray(result.messages)) {
+      hybridStore.setMessages(friendId, result.messages);
+      console.log(`已从本地数据库加载与 ${friendId} 的 ${result.messages.length} 条历史消息 (共 ${result.total} 条)`);
+
+      // 检查是否有阅后即焚消息，如果有则重新启动清理定时器
+      const hasDestroyAfterMessages = result.messages.some(msg => msg.destroy_after && msg.destroy_after > Math.floor(Date.now() / 1000));
+      if (hasDestroyAfterMessages) {
+        console.log('检测到阅后即焚消息，重新启动清理定时器');
+        hybridStore.startBurnAfterCleanupTimer();
+      }
+    } else {
+       console.warn('getMessagesWithFriend did not return a valid result object');
+       hybridStore.setMessages(friendId, []); // Set empty array to avoid errors
     }
   } catch (error) {
     console.error('从本地数据库加载历史消息失败:', error);

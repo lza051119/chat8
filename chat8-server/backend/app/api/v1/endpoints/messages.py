@@ -1,39 +1,52 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from app.db.database import SessionLocal
-from app.schemas.message import Message, MessageCreate
-from app.services import message_service
-from typing import List
-from app.core.security import get_current_user
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.api.deps import get_db
+from app.services.message_service import message_service
+from app.schemas import message as message_schema
 from app.schemas.user import UserOut
+from app.core.security import get_current_user
+from app.websocket.manager import manager as websocket_manager
+import json
 
 router = APIRouter()
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-@router.post("/messages", response_model=Message)
-def send_message(msg: MessageCreate, current_user: UserOut = Depends(get_current_user), db: Session = Depends(get_db)):
-    return message_service.send_message(
-        db,
-        from_id=int(current_user.id),
-        to_id=msg.to_id,
-        encrypted_content=msg.encrypted_content,
-        message_type=msg.message_type,
-        recipient_online=False  # 简化处理，总是保存到数据库
+@router.post("/messages", response_model=message_schema.MessageOut)
+async def send_message(
+    message_in: message_schema.MessageCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserOut = Depends(get_current_user),
+):
+    """
+    发送一条新消息。
+    """
+    message = await message_service.create_message(db, message_in=message_in, from_user_id=current_user.id)
+    
+    # 通过WebSocket实时推送消息
+    await websocket_manager.send_personal_message(
+        json.dumps({"event": "new_message", "data": message_schema.MessageOut.from_orm(message).model_dump()}),
+        message.to_user_id
     )
+    
+    return message
 
-@router.get("/messages/history/{peer_id}")
-def get_history(peer_id: int, page: int = 1, limit: int = 50, current_user: UserOut = Depends(get_current_user), db: Session = Depends(get_db)):
-    result = message_service.get_message_history(db, int(current_user.id), peer_id, page, limit)
-    return result
+@router.get("/messages/history/{friend_id}", response_model=list[message_schema.MessageOut])
+async def get_message_history(
+    friend_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserOut = Depends(get_current_user),
+):
+    """
+    获取与指定好友的聊天记录。
+    """
+    history = await message_service.get_message_history(
+        db, user_id=current_user.id, friend_id=friend_id, skip=skip, limit=limit
+    )
+    return history
 
 @router.delete("/messages/{message_id}")
-def delete_message(message_id: int, current_user: UserOut = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_message(message_id: int, current_user: UserOut = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     ok, err = message_service.delete_message(db, int(current_user.id), message_id)
     if not ok:
         raise HTTPException(status_code=403 if err=="无权限删除该消息" else 404, detail=err)

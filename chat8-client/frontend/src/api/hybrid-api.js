@@ -7,8 +7,9 @@ const API_BASE_URL = config.API_BASE_URL + '/api';
 // 创建axios实例
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 30000,
   headers: {
+    'ngrok-skip-browser-warning': 'true',// <--- 将 header 添加到这里
     'Content-Type': 'application/json'
   }
 });

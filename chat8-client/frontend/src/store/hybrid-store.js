@@ -112,9 +112,9 @@ export const hybridStore = {
       
       // 登录成功后初始化本地数据库
       try {
-        console.log('📦 正在初始化本地数据库...');
+        console.log('📦 正在为用户 %s 初始化本地数据库...', normalizedUser.id);
         const { initDatabase } = await import('../client_db/database.js');
-        await initDatabase();
+        await initDatabase(normalizedUser.id);
         console.log('✅ 本地数据库初始化完成');
       } catch (dbError) {
         console.error('❌ 本地数据库初始化失败:', dbError);
@@ -129,33 +129,33 @@ export const hybridStore = {
   },
 
   // 从本地存储加载用户信息
-  loadUserFromStorage() {
-    const user = localStorage.getItem('user');
+  async loadUserFromStorage() {
+    const userStr = localStorage.getItem('user');
     const token = localStorage.getItem('token');
     
-    if (user && token) {
+    if (userStr && token) {
       try {
-        const parsedUser = JSON.parse(user);
-        // 标准化用户对象，确保有 id 字段
-        const userId = parsedUser?.id || parsedUser?.userId;
-        if (userId) {
-          state.user = {
-            ...parsedUser,
-            id: userId
-          };
-        } else {
-          state.user = parsedUser;
+        const parsedUser = JSON.parse(userStr);
+        // 调用 setUser 来统一处理用户状态设置和数据库初始化
+        await this.setUser(parsedUser, token);
+        
+        // 确保数据库已初始化
+        try {
+          const { initDatabase } = await import('../client_db/database.js');
+          await initDatabase(parsedUser.id);
+          console.log('✅ 从本地存储恢复会话时已初始化数据库');
+        } catch (dbError) {
+          console.error('❌ 从本地存储恢复会话时初始化数据库失败:', dbError);
         }
-        state.token = token;
+        
+        return true;
       } catch (error) {
-        console.error('解析用户信息失败:', error);
-        state.user = null;
-        state.token = null;
+        console.error('从本地存储加载用户信息失败:', error);
+        this.logout(); // 如果加载失败，清理状态
+        return false;
       }
-    } else {
-      state.user = null;
-      state.token = null;
     }
+    return false;
   },
 
   // 退出登录
@@ -316,7 +316,7 @@ export const hybridStore = {
   },
 
   // 设置对话消息（用于加载历史消息）
-  setMessages(userId, messages) {
+  async setMessages(userId, messages) {
     if (!state.conversations[userId]) {
       state.conversations[userId] = {
         messages: [],
@@ -386,6 +386,33 @@ export const hybridStore = {
       }
     }
     
+    // 将消息保存到本地数据库
+    try {
+      // 动态导入数据库模块，避免循环依赖
+      const { addMessage } = await import('../client_db/database.js');
+      
+      // 检查是否有新消息需要保存到数据库
+      for (const message of sortedMessages) {
+        // 只保存有ID的消息，避免重复保存临时消息
+        if (message.id && !existingMessagesMap.has(message.id)) {
+          await addMessage({
+            id: message.id,
+            from: message.from,
+            to: message.to,
+            content: message.content,
+            timestamp: message.timestamp,
+            method: message.method || 'Server',
+            encrypted: message.encrypted || false,
+            messageType: message.messageType || 'text',
+            destroyAfter: message.destroyAfter || null
+          });
+        }
+      }
+      console.log(`已将用户${userId}的新消息保存到本地数据库`);
+    } catch (error) {
+      console.error(`保存消息到本地数据库失败:`, error);
+    }
+    
     console.log(`已设置用户${userId}的消息历史，共${sortedMessages.length}条消息`);
   },
 
@@ -439,25 +466,38 @@ export const hybridStore = {
     return state.p2pConnections[userId] || 'disconnected';
   },
 
-  // 更新在线状态
-  updateOnlineStatus(userId, isOnline, timestamp = null) {
-    // 确保userId是数字类型
-    const numericUserId = parseInt(userId);
+  // (Refactored) Handles a list of online friends
+  onFriendsStatusReceived(onlineFriends) {
+    if (!Array.isArray(onlineFriends)) return;
+
+    const onlineIds = new Set(onlineFriends.map(friend => friend.userId));
+    state.onlineUsers = onlineIds;
+
+    state.contacts.forEach(contact => {
+      contact.online = onlineIds.has(contact.id);
+    });
+    console.log(`[Store] 好友在线状态已更新, ${onlineIds.size} 个好友在线.`);
+  },
+
+  updateOnlineStatus(statusUpdate) {
+    const { userId, status, lastSeen } = statusUpdate;
+    const isOnline = status === 'online';
     
+    // 更新在线用户集合
     if (isOnline) {
-      state.onlineUsers.add(numericUserId);
+      state.onlineUsers.add(userId);
     } else {
-      state.onlineUsers.delete(numericUserId);
+      state.onlineUsers.delete(userId);
     }
     
     // 更新联系人在线状态
-    const contact = state.contacts.find(c => parseInt(c.id) === numericUserId);
+    const contact = state.contacts.find(c => parseInt(c.id) === userId);
     if (contact) {
       contact.online = isOnline;
-      if (timestamp) {
-        contact.lastSeen = timestamp;
+      if (lastSeen) {
+        contact.lastSeen = lastSeen;
       }
-      console.log(`已更新用户 ${numericUserId} 的在线状态: ${isOnline ? '在线' : '离线'}`);
+      console.log(`已更新用户 ${userId} 的在线状态: ${isOnline ? '在线' : '离线'}`);
     }
   },
 
@@ -501,79 +541,30 @@ export const hybridStore = {
   },
 
   getConnectionStats() {
-    // 返回一个模拟的连接统计对象
-    return {
-      p2pConnections: 1,
-      serverConnections: 1,
-      p2pRatio: 50
-    };
+    return { ...state.messageStats };
   },
 
   // HybridMessaging服务管理
   setHybridMessaging(hybridMessaging) {
     state.hybridMessaging = hybridMessaging;
     
-    // 设置消息接收回调
-    if (hybridMessaging) {
-      hybridMessaging.onMessageReceived = async (message) => {
-        await this.handleReceivedMessage(message);
-      };
-      
-      hybridMessaging.onUserStatusChanged = (data) => {
-        console.log('Store收到用户状态变化:', data);
-        
-        // 验证数据有效性
-        if (!data || typeof data !== 'object') {
-          console.warn('收到无效的用户状态变化数据:', data);
-          return;
-        }
-        
-        // 验证userId
-        const userId = parseInt(data.userId);
-        if (!userId || userId <= 0) {
-          console.warn('收到无效的用户ID:', data.userId);
-          return;
-        }
-        
-        // 验证status
-        if (!data.status || typeof data.status !== 'string') {
-          console.warn('收到无效的用户状态:', data.status);
-          return;
-        }
-        
-        // 处理新格式的presence消息
-        const isOnline = data.isOnline !== undefined ? data.isOnline : (data.status === 'online');
-        const timestamp = data.timestamp;
-        const websocketConnected = data.websocketConnected;
-        const p2pCapability = data.p2pCapability;
-        
-        // 更新在线状态
-        this.updateOnlineStatus(userId, isOnline, timestamp);
-        
-        // 如果有P2P能力信息，更新P2P状态
-        if (p2pCapability !== undefined) {
-          this.updateP2PConnection(userId, p2pCapability ? 'available' : 'unavailable');
-        }
-        
-        // 状态变化已处理
-      };
-      
-      // 设置P2P连接状态变化回调
-      hybridMessaging.onP2PStatusChanged = (userId, status) => {
-        this.updateP2PConnection(userId, status);
-        
-        // 更新联系人的连接状态
-        const contact = state.contacts.find(c => c.id === userId);
-        if (contact) {
-          contact.connectionStatus = {
-            ...contact.connectionStatus,
-            canUseP2P: status === 'connected',
-            preferredMethod: status === 'connected' ? 'P2P' : 'Server',
-            p2pStatus: status
-          };
-        }
-      };
-    }
+    // 设置回调
+    hybridMessaging.onMessageReceived = (message) => {
+      this.handleReceivedMessage(message);
+    };
+    hybridMessaging.onUserStatusChanged = (statusUpdate) => {
+      this.updateOnlineStatus(statusUpdate);
+    };
+    hybridMessaging.onFriendsStatusReceived = (onlineFriends) => {
+      this.onFriendsStatusReceived(onlineFriends);
+    };
+    hybridMessaging.onP2PStatusChanged = (userId, p2pStatus) => {
+      const contact = this.getContact(userId);
+      if (contact) {
+        contact.connectionStatus.p2pStatus = p2pStatus;
+        // ... more logic if needed
+      }
+    };
   },
 
   getHybridMessaging() {

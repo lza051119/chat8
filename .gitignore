@@ -42,3 +42,8 @@ dist/
 # Specific to chat8 project
 chat8-client/libsignal/node/build/
 chat8-server/backend/venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class

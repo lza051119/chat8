@@ -1,25 +1,30 @@
-import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from .models import Base
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-# 使用绝对路径确保数据库文件始终在backend/app目录下
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, 'Server.db')
-SQLALCHEMY_DATABASE_URL = f'sqlite:///{DB_PATH}'
+# 使用 aiosqlite 驱动的异步 DSN
+SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./Server.db"
 
-engine = create_engine(             
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+# 创建异步引擎
+engine = create_async_engine(
+    SQLALCHEMY_DATABASE_URL, 
+    connect_args={"check_same_thread": False},
+    future=True
 )
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-def init_db():
-    Base.metadata.create_all(bind=engine)
+# 创建异步会话工厂
+SessionLocal = sessionmaker(
+    autocommit=False, 
+    autoflush=False, 
+    bind=engine, 
+    class_=AsyncSession,
+    expire_on_commit=False
+)
 
-def get_db() -> Session:
-    """获取数据库会话的依赖项"""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+Base = declarative_base()
+
+async def get_db() -> AsyncSession:
+    """
+    异步的数据库会话依赖。
+    """
+    async with SessionLocal() as session:
+        yield session

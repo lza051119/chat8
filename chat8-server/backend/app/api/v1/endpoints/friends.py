@@ -1,27 +1,22 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from app.db.database import SessionLocal
-from app.db import models
-from app.schemas.friend import Friend, FriendCreate, FriendRequestCreate, FriendRequestResponse, FriendRequestOut
-from app.services import friend_service
-from typing import List
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.api.deps import get_db
+from app.services.friend_service import friend_service
 from app.core.security import get_current_user
 from app.schemas.user import UserOut
 
 router = APIRouter()
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-@router.get("/contacts")
-def get_contacts(page: int = 1, limit: int = 50, current_user: UserOut = Depends(get_current_user), db: Session = Depends(get_db)):
-    result = friend_service.get_friends(db, int(current_user.id), page, limit)
-    # 直接返回用户信息数据，无需转换
-    return {"success": True, "data": result}
+@router.get("/contacts", response_model=list[UserOut])
+async def get_contacts(
+    db: AsyncSession = Depends(get_db),
+    current_user: UserOut = Depends(get_current_user),
+):
+    """
+    获取当前用户的好友列表。
+    """
+    friends = await friend_service.get_friends(db, user_id=current_user.id)
+    return friends
 
 @router.post("/contacts/request")
 def send_friend_request(request: FriendRequestCreate, current_user: UserOut = Depends(get_current_user), db: Session = Depends(get_db)):
