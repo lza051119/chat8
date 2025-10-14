@@ -1869,7 +1869,7 @@ async function extractHiddenMessage(message) {
     
     // 调用隐写术提取API
     console.log('调用隐写术API提取隐藏信息...');
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+    const API_BASE_URL = '/api';
         const extractResponse = await fetch(`${API_BASE_URL}/steganography/extract`, {
       method: 'POST',
       body: formData
@@ -1949,7 +1949,7 @@ function getImageUrl(filePath) {
   }
   
   // 使用完整的后端URL：通过upload路由的images端点访问图片
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+  const API_BASE_URL = '/api/v1';
   const finalUrl = `${API_BASE_URL}/images/${imageParam}?t=${Date.now()}`;
   
   return finalUrl;
@@ -2017,7 +2017,7 @@ function downloadFile(message) {
   console.log('使用的文件路径:', filePath);
   console.log('使用的文件名:', fileName);
   
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+  const API_BASE_URL = '/api/v1';
   const url = `${API_BASE_URL}/files/${filePath}`;
   
   console.log('下载URL:', url);

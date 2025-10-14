@@ -1,0 +1,55 @@
+name: Export Offline Docker Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "Target architecture (amd64 recommended)"
+        type: choice
+        options:
+          - amd64
+        default: amd64
+
+jobs:
+  build-and-export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image (amd64)
+        run: |
+          docker build \
+            --build-arg BASE_PYTHON=python:3.11-slim \
+            -t chat8-backend:latest \
+            ./chat8-server/backend
+
+      - name: Build frontend image (amd64)
+        run: |
+          docker build \
+            --build-arg BASE_NODE=node:18-alpine \
+            --build-arg BASE_NGINX=nginx:alpine \
+            -t chat8-frontend:latest \
+            ./chat8-client/frontend
+
+      - name: Export backend as tar.gz
+        run: |
+          docker save chat8-backend:latest | gzip -c > chat8-backend_${{ inputs.arch }}.tar.gz
+          ls -lh chat8-backend_${{ inputs.arch }}.tar.gz
+
+      - name: Export frontend as tar.gz
+        run: |
+          docker save chat8-frontend:latest | gzip -c > chat8-frontend_${{ inputs.arch }}.tar.gz
+          ls -lh chat8-frontend_${{ inputs.arch }}.tar.gz
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat8-offline-images-${{ inputs.arch }}
+          path: |
+            chat8-backend_${{ inputs.arch }}.tar.gz
+            chat8-frontend_${{ inputs.arch }}.tar.gz
+          if-no-files-found: error

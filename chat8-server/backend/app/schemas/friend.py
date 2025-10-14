@@ -41,3 +41,18 @@ class FriendRequestOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class FriendOut(BaseModel):
+    id: int
+    username: str
+    avatar: Optional[str] = None
+    status: str
+    
+    class Config:
+        from_attributes = True
+
+class PaginatedFriendsResponse(BaseModel):
+    items: list[FriendOut]
+    total: int
+    page: int
+    limit: int

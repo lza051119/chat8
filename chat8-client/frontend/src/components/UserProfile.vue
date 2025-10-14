@@ -345,12 +345,12 @@ export default {
       
       // 如果是API相对路径（以/api开头），拼接基础URL
       if (avatarPath.startsWith('/api/')) {
-        const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+        const baseUrl = ''
         return `${baseUrl}${avatarPath}`
       }
       
       // 其他相对路径，拼接API基础URL
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      const baseUrl = ''
       return `${baseUrl}${avatarPath.startsWith('/') ? '' : '/'}${avatarPath}`
     }
 

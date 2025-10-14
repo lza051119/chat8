@@ -2,16 +2,16 @@
 
 // 开发环境配置
 const development = {
-  API_BASE_URL: 'http://localhost:8000',
-  WS_BASE_URL: 'ws://localhost:8000',
+  API_BASE_URL: '', // 使用相对路径，请求将发送到同源
+  WS_BASE_URL: `ws://${window.location.host}`, // 动态获取WebSocket地址
   DEBUG: true,
   LOG_LEVEL: 'debug'
 }
 
 // 生产环境配置
 const production = {
-  API_BASE_URL: 'https://your-server.com',
-  WS_BASE_URL: 'wss://your-server.com',
+  API_BASE_URL: '', // 使用相对路径，请求将发送到同源
+  WS_BASE_URL: `wss://${window.location.host}`, // 动态获取WebSocket地址 (使用wss)
   DEBUG: false,
   LOG_LEVEL: 'error'
 }

@@ -1,0 +1,32 @@
+services:
+  backend:
+    image: ${REGISTRY_DOMAIN}/${IMAGE_PREFIX}/chat8-backend:latest
+    container_name: chat8-backend
+    restart: unless-stopped
+    env_file:
+      - ./chat8-server/backend/.env
+    environment:
+      DATABASE_URL: sqlite:////app/data/database/Server.db
+      UPLOADS_DIR: /app/data/uploads
+      HOST: 0.0.0.0
+      PORT: 8000
+      # 在启动时传入实际允许的来源（例如 http://your-ip:8080 或 https://your-domain）
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+    volumes:
+      - ./chat8-server/data/database:/app/data/database
+      - ./chat8-server/data/uploads:/app/data/uploads
+    ports:
+      - "8000:8000"
+
+  frontend:
+    image: ${REGISTRY_DOMAIN}/${IMAGE_PREFIX}/chat8-frontend:latest
+    container_name: chat8-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+networks:
+  default:
+    name: chat8-net

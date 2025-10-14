@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import logging
 from dotenv import load_dotenv
 import os
+from pathlib import Path
 
 # 加载环境变量
 load_dotenv()
@@ -25,6 +26,7 @@ from .services.user_states_update import initialize_user_presence_service, clean
 from .db.models import User
 from .core.config import UPLOADS_DIR
 from sqlalchemy import select, update
+from fastapi.responses import FileResponse
 
 # 创建 ConnectionManager 单例
 # connection_manager = ConnectionManager() # manager已经从websocket.manager导入，无需重复创建
@@ -97,7 +99,8 @@ origins = [
     "http://localhost:8080",
     "http://localhost:8081",
     "http://localhost:8082",
-    "https://*.ngrok-free.app" 
+    "https://*.ngrok-free.app",
+    "https://d679fe5010e3.ngrok-free.app"
 ]
 
 # 这段是一个全局安全配置。它配置了 CORS策略。简单说，它就像一个服务器的门卫，规定了哪些外部网站可以访问本服务器的资源。
@@ -120,7 +123,34 @@ app.include_router(security.router, prefix="/api/v1")
 app.include_router(user_status.router, prefix="/api/v1")
 app.include_router(user_profile.router, prefix="/api/v1")
 app.include_router(upload.router, prefix="/api/v1")
+
+
+# 挂载静态文件目录
+# for user uploaded files
 app.mount("/static", StaticFiles(directory=str(UPLOADS_DIR)), name="static")
+
+# for frontend static files
+# 获取当前文件所在目录的绝对路径
+current_file_path = Path(__file__).parent.resolve()
+# 构建前端dist目录的绝对路径
+# 从 /e:/Github/Chat8/chat8/chat8-server/backend/app
+# 目标 /e:/Github/Chat8/chat8/chat8-client/frontend/dist
+frontend_dist_path = current_file_path.parent.parent.parent / "chat8-client" / "frontend" / "dist"
+
+# 检查目录是否存在
+if frontend_dist_path.exists() and frontend_dist_path.is_dir():
+    app.mount("/assets", StaticFiles(directory=frontend_dist_path / "assets"), name="assets")
+
+    @app.get("/{catch_all:path}")
+    async def serve_frontend(catch_all: str):
+        index_path = frontend_dist_path / "index.html"
+        if index_path.exists():
+            return FileResponse(index_path)
+        # 如果index.html不存在，可以返回一个404错误
+        return JSONResponse(status_code=404, content={"message": "Frontend not found"})
+else:
+    print(f"Frontend directory not found at {frontend_dist_path}")
+
 
 @app.get("/api/ping")
 def ping():

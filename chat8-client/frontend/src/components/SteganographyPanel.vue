@@ -164,7 +164,7 @@ export default {
         formData.append('secret_message', this.secretMessage)
         formData.append('password', this.password)
 
-        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+        const API_BASE_URL = '/api';
         const response = await axios.post(`${API_BASE_URL}/steganography/embed`, formData, {
           headers: {
             'Content-Type': 'multipart/form-data'
@@ -206,7 +206,7 @@ export default {
         formData.append('image', this.extractImage)
         formData.append('password', this.extractPassword)
 
-        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+        const API_BASE_URL = '/api';
         const response = await axios.post(`${API_BASE_URL}/steganography/extract`, formData, {
           headers: {
             'Content-Type': 'multipart/form-data'

@@ -1,0 +1,40 @@
+name: Build and Push Chat8 Images
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.REGISTRY_DOMAIN }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and Push Backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./chat8-server/backend
+          push: true
+          platforms: linux/amd64
+          tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/chat8-backend:latest
+
+      - name: Build and Push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./chat8-client/frontend
+          push: true
+          platforms: linux/amd64
+          tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/chat8-frontend:latest

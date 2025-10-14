@@ -16,27 +16,19 @@
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:8080 && electron .\"",
     "build:electron": "npm run build && electron-builder",
     "dist": "npm run build && electron-builder --publish=never",
-    "pack": "electron-builder --dir",
-    "postinstall": "electron-builder install-app-deps"
+    "pack": "electron-builder --dir"
   },
   "dependencies": {
-    "@electron/remote": "^2.1.2",
     "axios": "^1.10.0",
     "crypto-js": "^4.2.0",
     "dexie": "^4.0.11",
-    "sqlite": "^5.1.1",
-    "sqlite3": "^5.1.7",
     "vue": "^3.4.0",
     "vue-router": "^4.2.0",
     "vuex": "^4.0.2"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
-    "vite": "^6.0.0",
-    "electron": "^28.0.0",
-    "electron-builder": "^24.9.1",
-    "concurrently": "^8.2.2",
-    "wait-on": "^7.2.0"
+    "vite": "^6.0.0"
   },
   "build": {
     "appId": "com.chat8.app",

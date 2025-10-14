@@ -1,5 +1,6 @@
-# 使用官方Python运行时作为父镜像
-FROM python:3.11-slim
+# 使用官方Python运行时作为父镜像（可通过构建参数替换为国内镜像）
+ARG BASE_PYTHON=python:3.11-slim
+FROM ${BASE_PYTHON}
 
 # 设置工作目录
 WORKDIR /app

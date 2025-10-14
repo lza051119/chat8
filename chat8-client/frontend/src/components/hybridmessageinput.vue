@@ -286,7 +286,7 @@ async function handleSteganographyUpload(file) {
     formData.append('password', 'default_password'); // 临时使用默认密码，后续可以改为用户设置的密码
     
     // 调用隐写术API
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+    const API_BASE_URL = '/api';
     const response = await fetch(`${API_BASE_URL}/steganography/embed`, {
       method: 'POST',
       body: formData
