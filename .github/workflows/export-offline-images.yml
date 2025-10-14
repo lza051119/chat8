@@ -1,4 +1,4 @@
-name: Export Offline Docker Images
+name: Export Offline Docker Images (Whisper)
 
 on:
   workflow_dispatch:
@@ -24,32 +24,32 @@ jobs:
         run: |
           docker build \
             --build-arg BASE_PYTHON=python:3.11-slim \
-            -t chat8-backend:latest \
-            ./chat8-server/backend
+            -t whisper-backend:latest \
+            ./whisper_server/backend
 
       - name: Build frontend image (amd64)
         run: |
           docker build \
             --build-arg BASE_NODE=node:18-alpine \
             --build-arg BASE_NGINX=nginx:alpine \
-            -t chat8-frontend:latest \
-            ./chat8-client/frontend
+            -t whisper-frontend:latest \
+            ./whisper-client/frontend
 
       - name: Export backend as tar.gz
         run: |
-          docker save chat8-backend:latest | gzip -c > chat8-backend_${{ inputs.arch }}.tar.gz
-          ls -lh chat8-backend_${{ inputs.arch }}.tar.gz
+          docker save whisper-backend:latest | gzip -c > whisper-backend_${{ inputs.arch }}.tar.gz
+          ls -lh whisper-backend_${{ inputs.arch }}.tar.gz
 
       - name: Export frontend as tar.gz
         run: |
-          docker save chat8-frontend:latest | gzip -c > chat8-frontend_${{ inputs.arch }}.tar.gz
-          ls -lh chat8-frontend_${{ inputs.arch }}.tar.gz
+          docker save whisper-frontend:latest | gzip -c > whisper-frontend_${{ inputs.arch }}.tar.gz
+          ls -lh whisper-frontend_${{ inputs.arch }}.tar.gz
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: chat8-offline-images-${{ inputs.arch }}
+          name: whisper-offline-images-${{ inputs.arch }}
           path: |
-            chat8-backend_${{ inputs.arch }}.tar.gz
-            chat8-frontend_${{ inputs.arch }}.tar.gz
+            whisper-backend_${{ inputs.arch }}.tar.gz
+            whisper-frontend_${{ inputs.arch }}.tar.gz
           if-no-files-found: error

@@ -1,4 +1,4 @@
-name: Build and Push Chat8 Images
+name: Build and Push Whisper Images
 
 on:
   workflow_dispatch:
@@ -26,15 +26,15 @@ jobs:
       - name: Build and Push Backend
         uses: docker/build-push-action@v5
         with:
-          context: ./chat8-server/backend
+          context: ./whisper_server/backend
           push: true
           platforms: linux/amd64
-          tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/chat8-backend:latest
+          tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/whisper-backend:latest
 
       - name: Build and Push Frontend
         uses: docker/build-push-action@v5
         with:
-          context: ./chat8-client/frontend
+          context: ./whisper-client/frontend
           push: true
           platforms: linux/amd64
-          tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/chat8-frontend:latest
+          tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/whisper-frontend:latest
