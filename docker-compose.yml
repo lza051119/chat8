@@ -14,7 +14,7 @@ services:
       # 覆盖容器内的持久化路径和允许来源
       DATABASE_URL: sqlite:////app/data/database/Server.db
       UPLOADS_DIR: /app/data/uploads
-      ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://26.201.54.147:8080
       HOST: 0.0.0.0
       PORT: 8000
     volumes:
