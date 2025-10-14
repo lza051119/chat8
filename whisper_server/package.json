@@ -1,0 +1,45 @@
+{
+  "name": "chat8-server",
+  "version": "1.0.0",
+  "description": "Chat8 Server - Backend API and WebSocket server for secure messaging",
+  "main": "backend/app/main.py",
+  "scripts": {
+    "start": "cd backend && python -m app.main",
+    "dev": "cd backend && python -m app.main",
+    "init-db": "cd backend && python -m app.init_db",
+    "install": "cd backend && pip install -r requirements.txt",
+    "test": "cd backend && python -m pytest",
+    "lint": "cd backend && flake8 app/",
+    "format": "cd backend && black app/"
+  },
+  "keywords": [
+    "chat",
+    "messaging",
+    "websocket",
+    "fastapi",
+    "python",
+    "backend",
+    "api"
+  ],
+  "author": "Chat8 Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/chat8-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/chat8-server/issues"
+  },
+  "homepage": "https://github.com/your-username/chat8-server#readme",
+  "engines": {
+    "python": ">=3.8"
+  },
+  "os": [
+    "linux",
+    "darwin",
+    "win32"
+  ],
+  "dependencies": {},
+  "devDependencies": {},
+  "private": true
+}
