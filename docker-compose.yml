@@ -6,7 +6,7 @@ services:
       args:
         # 使用国内镜像源，避免访问 docker.io 认证端点
         BASE_PYTHON: m.daocloud.io/library/python:3.11-slim
-    container_name: whisper-backend
+    container_name: whisper_backend
     restart: unless-stopped
     env_file:
       - ./whisper_server/backend/.env
@@ -30,7 +30,7 @@ services:
       args:
         BASE_NODE: m.daocloud.io/library/node:18-alpine
         BASE_NGINX: m.daocloud.io/library/nginx:alpine
-    container_name: whisper-frontend
+    container_name: whisper_frontend
     restart: unless-stopped
     depends_on:
       - backend
@@ -39,4 +39,4 @@ services:
 
 networks:
   default:
-    name: whisper-net
+    name: whisper_net

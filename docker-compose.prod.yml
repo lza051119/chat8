@@ -1,7 +1,7 @@
 services:
   backend:
-    image: ${REGISTRY_DOMAIN}/${IMAGE_PREFIX}/whisper-backend:latest
-    container_name: whisper-backend
+    image: ${REGISTRY_DOMAIN}/${IMAGE_PREFIX}/whisper_backend:latest
+    container_name: whisper_backend
     restart: unless-stopped
     env_file:
       - ./whisper_server/backend/.env
@@ -19,8 +19,8 @@ services:
       - "8000:8000"
 
   frontend:
-    image: ${REGISTRY_DOMAIN}/${IMAGE_PREFIX}/whisper-frontend:latest
-    container_name: whisper-frontend
+    image: ${REGISTRY_DOMAIN}/${IMAGE_PREFIX}/whisper_frontend:latest
+    container_name: whisper_frontend
     restart: unless-stopped
     depends_on:
       - backend
@@ -29,4 +29,4 @@ services:
 
 networks:
   default:
-    name: whisper-net
+    name: whisper_net

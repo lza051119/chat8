@@ -12,11 +12,11 @@
 ## 离线镜像导出与导入（推荐在受限网络或服务器部署时使用）
 - 在 GitHub 仓库的 `Actions` 里运行工作流：`Export Offline Docker Images`（手动触发，默认 `amd64`）。
 - 运行完成后，在该工作流的 `Artifacts` 下载两个文件：
-  - `whisper-backend_amd64.tar.gz`
-  - `whisper-frontend_amd64.tar.gz`
+  - `whisper_backend_amd64.tar.gz`
+  - `whisper_frontend_amd64.tar.gz`
 - 在目标机器导入（Linux/WSL/Windows PowerShell 皆可，路径按实际替换）：
-  - `docker load -i /path/to/whisper-backend_amd64.tar.gz`
-  - `docker load -i /path/to/whisper-frontend_amd64.tar.gz`
+  - `docker load -i /path/to/whisper_backend_amd64.tar.gz`
+  - `docker load -i /path/to/whisper_frontend_amd64.tar.gz`
 - 使用生产编排启动（如需同域部署）：
   - 在项目根目录：`docker compose -f docker-compose.prod.yml up -d`
   - 必要变量（示例）：`ALLOWED_ORIGINS=http://localhost:8080` 或你的域名
@@ -44,20 +44,20 @@
 - 网络与端口：确保服务器对外开放 `80/443/8080/8000`（或按你的域名/端口策略调整）。
 
 **二、两种部署方式（任选其一）**
-- 方式 A（推荐）：使用离线应用镜像（最稳，不依赖 npm/pip/Docker Hub）
+- 方式 A（推荐，因为现在国内的镜像好多都用不了了）：使用离线应用镜像（最稳，不依赖 npm/pip/Docker Hub）
   - 从 GitHub Actions 的 `Artifacts` 下载：
-    - `whisper-backend_amd64.tar.gz`
-    - `whisper-frontend_amd64.tar.gz`
+    - `whisper_backend_amd64.tar.gz`
+    - `whisper_frontend_amd64.tar.gz`
   - 上传到服务器并导入（示例）：
-    - `docker load -i ~/whisper-backend_amd64.tar.gz`
-    - `docker load -i ~/whisper-frontend_amd64.tar.gz`
+    - `docker load -i ~/whisper_backend_amd64.tar.gz`
+    - `docker load -i ~/whisper_frontend_amd64.tar.gz`
   - 启动（同域反代、免 CORS）：
     - `export ALLOWED_ORIGINS=http://localhost:8080`  # 或你的域名，如 `https://chat.example.com`
     - `docker compose -f docker-compose.prod.yml up -d`
   - 访问与验证：
     - 前端：`http://<服务器IP>:8080`
     - 后端：`http://<服务器IP>:8000`
-    - 日志：`docker logs -n 100 whisper-frontend`、`docker logs -n 100 whisper-backend`
+    - 日志：`docker logs -n 100 whisper_frontend`、`docker logs -n 100 whisper_backend`
 
 - 方式 B：从镜像仓库拉取（需提前用 CI 推送到仓库）
   - 准备镜像仓库（Docker Hub / GHCR / 阿里云 ACR），在 GitHub 仓库设置 Secrets：

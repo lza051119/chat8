@@ -29,7 +29,7 @@ jobs:
           context: ./whisper_server/backend
           push: true
           platforms: linux/amd64
-          tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/whisper-backend:latest
+          tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/whisper_backend:latest
 
       - name: Build and Push Frontend
         uses: docker/build-push-action@v5
@@ -37,4 +37,4 @@ jobs:
           context: ./whisper_client/frontend
           push: true
           platforms: linux/amd64
-          tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/whisper-frontend:latest
+          tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/whisper_frontend:latest
