@@ -1,5 +1,9 @@
 name: Build and Push Whisper Images
 
+permissions:
+  contents: read
+  packages: write
+
 on:
   workflow_dispatch:
 
@@ -16,12 +20,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Registry
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
-          registry: ${{ secrets.REGISTRY_DOMAIN }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and Push Backend
         uses: docker/build-push-action@v5
@@ -29,7 +33,7 @@ jobs:
           context: ./whisper_server/backend
           push: true
           platforms: linux/amd64
-          tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/whisper_backend:latest
+          tags: ghcr.io/${{ github.repository_owner }}/whisper_backend:latest
 
       - name: Build and Push Frontend
         uses: docker/build-push-action@v5
@@ -37,4 +41,4 @@ jobs:
           context: ./whisper_client/frontend
           push: true
           platforms: linux/amd64
-          tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/whisper_frontend:latest
+          tags: ghcr.io/${{ github.repository_owner }}/whisper_frontend:latest
