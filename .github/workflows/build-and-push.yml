@@ -27,13 +27,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set repo owner lowercase
+        run: echo "REPO_OWNER_LOWER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+        shell: bash
+
       - name: Build and Push Backend
         uses: docker/build-push-action@v5
         with:
           context: ./whisper_server/backend
           push: true
           platforms: linux/amd64
-          tags: ghcr.io/${{ github.repository_owner }}/whisper_backend:latest
+          tags: ghcr.io/${{ env.REPO_OWNER_LOWER }}/whisper_backend:latest
 
       - name: Build and Push Frontend
         uses: docker/build-push-action@v5
@@ -41,4 +45,4 @@ jobs:
           context: ./whisper_client/frontend
           push: true
           platforms: linux/amd64
-          tags: ghcr.io/${{ github.repository_owner }}/whisper_frontend:latest
+          tags: ghcr.io/${{ env.REPO_OWNER_LOWER }}/whisper_frontend:latest
