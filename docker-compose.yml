@@ -4,8 +4,7 @@ services:
       context: ./whisper_server/backend
       dockerfile: Dockerfile
       args:
-        # 使用国内镜像源，避免访问 docker.io 认证端点
-        BASE_PYTHON: m.daocloud.io/library/python:3.11-slim
+        BASE_PYTHON: python:3.11-slim
     container_name: whisper_backend
     restart: unless-stopped
     env_file:
@@ -22,20 +21,32 @@ services:
       - ./whisper_server/data/uploads:/app/data/uploads
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/openapi.json')\" >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   frontend:
     build:
       context: ./whisper_client/frontend
       dockerfile: Dockerfile
       args:
-        BASE_NODE: m.daocloud.io/library/node:18-alpine
-        BASE_NGINX: m.daocloud.io/library/nginx:alpine
+        BASE_NODE: node:18-alpine
+        BASE_NGINX: nginx:alpine
     container_name: whisper_frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
       - "8080:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 networks:
   default:
