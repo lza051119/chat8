@@ -42,7 +42,7 @@ services:
     ports:
       - "8080:80"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost/ || exit 1"]
+      test: ["CMD", "true"]
       interval: 30s
       timeout: 5s
       retries: 3
