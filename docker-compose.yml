@@ -25,7 +25,7 @@ services:
 
   frontend:
     build:
-      context: ./whisper-client/frontend
+      context: ./whisper_client/frontend
       dockerfile: Dockerfile
       args:
         BASE_NODE: m.daocloud.io/library/node:18-alpine

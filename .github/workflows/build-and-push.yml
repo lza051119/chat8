@@ -34,7 +34,7 @@ jobs:
       - name: Build and Push Frontend
         uses: docker/build-push-action@v5
         with:
-          context: ./whisper-client/frontend
+          context: ./whisper_client/frontend
           push: true
           platforms: linux/amd64
           tags: ${{ secrets.REGISTRY_DOMAIN }}/${{ secrets.IMAGE_PREFIX }}/whisper-frontend:latest
